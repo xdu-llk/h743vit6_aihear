@@ -1,0 +1,52 @@
+# STM32 编译产物
+build/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+
+# ESP8266 编译产物
+esp8266_firmware/.pio/
+
+# APK 构建产物
+apk_build/*.apk
+apk_build/*.idsig
+apk_build/*.bak
+apk_build/obj/
+apk_build/tmp/
+apk_build/res/
+
+# 第三方库（需自行 git clone）
+third_party/
+
+# Python
+__pycache__/
+*.pyc
+
+# 训练数据（太大，不上传）
+training/data/
+training/feature_cache/
+training/processed/
+
+# 竞赛报告（不上传）
+docs/竞赛*
+docs/design_flow*
+docs/sw_*
+docs/app_scenarios*
+docs/feature_overview*
+docs/system_arch*
+docs/*.html
+docs/*.docx
+docs/report.docx
+docs/gen_docx.py
+
+# 数据库残留
+*.db
+
+# CubeMX（不再使用）
+*.ioc
+.mxproject
+
+# 桌面提交副本
+桌面提交/

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>AI Hear</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#FFF5F5;color:#4A3B3C;
+  display:flex;flex-direction:column;height:100%;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+
+/* ── 设备绑定 ── */
+.bind-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#FFF5F5;z-index:10000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;
+  padding-top:env(safe-area-inset-top)}
+.bind-overlay.hidden{display:none}
+.bind-card{background:#fff;border-radius:20px;padding:30px;width:100%;max-width:360px;
+  box-shadow:0 8px 32px rgba(0,0,0,.08);text-align:center}
+.bind-card h2{font-size:22px;color:#F2A0A0;margin-bottom:6px}
+.bind-card .sub{font-size:14px;color:#B8A9A5;margin-bottom:24px}
+.bind-card label{display:block;text-align:left;font-size:14px;color:#888;margin-bottom:6px;margin-top:16px}
+.bind-card input{width:100%;padding:14px;border:2px solid #F5E0E0;border-radius:12px;font-size:16px;outline:none}
+.bind-card input:focus{border-color:#F2A0A0}
+.bind-card .btn-bind{margin-top:24px;width:100%;padding:16px;
+  background:linear-gradient(135deg,#F2A0A0,#E8888A);color:#fff;border:none;border-radius:14px;
+  font-size:18px;font-weight:700;cursor:pointer}
+.bind-card .hint{font-size:12px;color:#C5B9B7;margin-top:16px;line-height:1.6}
+
+/* ── 内容区（可滚动） ── */
+.content-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
+.tab-pane{display:none;padding:14px;min-height:100%;animation:fadeIn .3s}
+.tab-pane.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── 底部 Tab 导航 ── */
+.tab-bar{display:flex;background:#fff;border-top:2px solid #F5E0E0;flex-shrink:0;
+  padding-bottom:env(safe-area-inset-bottom)}
+.tab-bar button{flex:1;padding:11px 0 9px;border:none;background:none;font-size:12px;color:#B8A9A5;
+  cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:.2s}
+.tab-bar button .tb-icon{font-size:20px;line-height:1}
+.tab-bar button.active{color:#F2A0A0;font-weight:700}
+
+/* ── 告警 状态栏 ── */
+.status-bar{background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:16px;
+  display:flex;align-items:center;justify-content:space-between;
+  box-shadow:0 2px 12px rgba(0,0,0,.06);border:1px solid #F5E8E8}
+.status-bar .left{display:flex;align-items:center;gap:10px}
+.mqtt-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.mqtt-dot.on{background:#4F8;box-shadow:0 0 8px #4F8}
+.mqtt-dot.mid{background:#FD0;box-shadow:0 0 8px #FD0}
+.mqtt-dot.off{background:#F44;box-shadow:0 0 8px #F44}
+.stxt{font-size:13px;font-weight:600}
+.stxt.ok{color:#28a745}
+.stxt.err{color:#dc3545}
+.dev{font-size:11px;color:#B8A9A5}
+.btn-toggle{background:#F2A0A0;color:#fff;border:none;padding:10px 20px;border-radius:20px;
+  font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
+
+/* ── 告警列表 ── */
+.alert-item{background:#fff;border-radius:14px;padding:16px;margin-bottom:12px;
+  display:flex;align-items:center;gap:12px;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8;
+  border-left:4px solid #E0D0D0}
+.alert-item.cry-card{border-left:4px solid #E8534F;background:#FFFBFB}
+.alert-item .icon{font-size:30px;flex-shrink:0}
+.alert-item .info{flex:1}.alert-item .cls{font-weight:700;font-size:14px}
+.alert-item .cls.cry{color:#E8534F}.alert-item .meta{font-size:12px;color:#B8A9A5;margin-top:2px}
+.alert-item .del{background:#FDD;border:1px solid #FCC;color:#D33;padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600}
+.alert-item .del:active{background:#FBB}
+
+/* ── 喂养 ── */
+.feed-row{display:flex;gap:10px;margin-bottom:14px}
+.feed-row input{flex:1;padding:12px 16px;border:2px solid #F5E0E0;border-radius:12px;font-size:15px;outline:none}
+.feed-row input:focus{border-color:#F2A0A0}
+.feed-row button{padding:12px 20px;background:#F2A0A0;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer}
+.feed-item{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8;border-left:4px solid #A8D8CA}
+.feed-item .fleft{flex:1}.feed-item .fts{font-size:14px;font-weight:600}
+.feed-item .fnt{font-size:12px;color:#B8A9A5}
+
+/* ── 统计 ── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.stat-card{background:#fff;border-radius:16px;padding:18px;text-align:center;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8}
+.stat-card .num{font-size:36px;font-weight:800;color:#F2A0A0}
+.stat-card .label{font-size:13px;color:#B8A9A5;margin-top:4px}
+.bar-chart{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.bar-chart h3{font-size:15px;margin-bottom:14px;color:#666}
+.bar-row{display:flex;align-items:center;margin-bottom:10px}
+.bar-row .day{width:36px;font-size:12px;color:#B8A9A5;text-align:right;margin-right:8px;flex-shrink:0}
+.bar-row .bar{flex:1;height:24px;background:#F5E0E0;border-radius:6px;position:relative;overflow:hidden}
+.bar-row .bar .fill{height:100%;background:linear-gradient(90deg,#F2A0A0,#E8888A);border-radius:6px;transition:width .5s}
+.bar-row .bar span{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff}
+
+/* ── AI ── */
+.ai-card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.ai-card h3{font-size:16px;margin-bottom:6px;color:#666}
+.ai-result{font-size:14px;line-height:1.8;color:#555;white-space:pre-wrap;margin-top:12px;padding:14px;background:#FFFBF5;border-radius:10px;border:1px solid #F5E0E0;min-height:80px}
+.btn-ai{margin-top:12px;width:100%;padding:14px;background:linear-gradient(135deg,#8E7AB5,#B5A0D8);color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer}
+.api-cfg{margin-top:14px;padding:14px;background:#FFFBEB;border-radius:10px;border:1px solid #F5E0E0}
+.api-cfg label{font-size:12px;color:#888;display:block;margin-bottom:4px}
+.api-cfg input{width:100%;padding:10px;border:1px solid #E8DDD8;border-radius:8px;font-size:13px;outline:none;margin-bottom:8px}
+.api-cfg button{padding:8px 18px;background:#F2A0A0;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer}
+
+/* ── 告警弹窗 ── */
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(220,50,50,.94);z-index:9999;
+  display:none;flex-direction:column;align-items:center;justify-content:center}
+.overlay.show{display:flex}
+.overlay .icon{font-size:80px;animation:bounce .6s infinite alternate}
+@keyframes bounce{from{transform:scale(1)}to{transform:scale(1.15)}}
+.overlay .msg{color:#fff;font-size:28px;font-weight:800;margin:20px 0;text-align:center}
+.overlay .sub{color:rgba(255,255,255,.8);font-size:15px;margin-bottom:30px}
+.overlay .dismiss{background:#fff;color:#D32;padding:16px 48px;border:none;border-radius:24px;font-size:18px;font-weight:700;cursor:pointer}
+
+.empty{text-align:center;color:#C5B9B7;padding:40px 0;font-size:15px}
+.err-msg{background:#FFF3CD;color:#856404;padding:10px 14px;border-radius:10px;margin-bottom:10px;font-size:13px;display:none}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ 设备绑定 ═══════════════ -->
+<div id="bindPage" class="bind-overlay">
+  <div class="bind-card">
+    <h2>🔗 绑定设备</h2>
+    <p class="sub">首次使用，请输入 ESP8266 设备 ID</p>
+    <label>设备 ID</label>
+    <input type="text" id="bindDeviceId" placeholder="例: aihear_AABBCC" autocomplete="off">
+    <p style="font-size:12px;color:#B8A9A5;text-align:left;margin-top:4px">
+      设备通电后，串口可看到 +DEVICEID:aihear_XXXXXX
+    </p>
+    <button class="btn-bind" onclick="doBind()">✅ 确认绑定</button>
+    <p class="hint">绑定后即可接收该设备推送的告警消息</p>
+  </div>
+</div>
+
+<!-- ═══════════════ 告警弹窗 ═══════════════ -->
+<div id="overlay" class="overlay" onclick="dismissAlert()">
+  <div class="icon">🚼</div>
+  <div class="msg" id="overlayMsg">检测到婴儿哭声！</div>
+  <div class="sub" id="overlaySub"></div>
+  <button class="dismiss" onclick="event.stopPropagation();dismissAlert()">确认</button>
+</div>
+
+<!-- ═══════════════ 主内容区 ═══════════════ -->
+<div class="content-area">
+
+  <!-- 告警 -->
+  <div id="pane-alerts" class="tab-pane active">
+    <div class="err-msg" id="errMsg"></div>
+    <div class="status-bar">
+      <div class="left">
+        <span class="mqtt-dot off" id="mqttDot"></span>
+        <div>
+          <div class="stxt err" id="mqttLabel">MQTT 未连接</div>
+          <div class="dev" id="deviceInfo">未绑定设备</div>
+        </div>
+      </div>
+      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">▶ 开启</button>
+    </div>
+    <div id="alertList"><div class="empty">暂无告警记录</div></div>
+    <div style="display:flex;justify-content:center;gap:12px;padding:8px 0 20px">
+      <button onclick="showBind()" style="background:none;border:1px solid #DDD;color:#999;padding:6px 16px;border-radius:20px;font-size:12px;cursor:pointer">🔗 绑定设备</button>
+      <button onclick="clearAlerts()" style="background:none;border:1px solid #E8534F;color:#E8534F;padding:6px 16px;border-radius:20px;font-size:12px;cursor:pointer">🗑 清空</button>
+    </div>
+  </div>
+
+  <!-- 喂养 -->
+  <div id="pane-feeding" class="tab-pane">
+    <div class="feed-row">
+      <input type="text" id="feedNote" placeholder="备注（配方奶/母乳/量ml）">
+      <button onclick="addFeeding()">记录</button>
+    </div>
+    <div id="feedList"><div class="empty">暂无喂养记录</div></div>
+  </div>
+
+  <!-- 统计 -->
+  <div id="pane-stats" class="tab-pane">
+    <div class="stat-grid">
+      <div class="stat-card"><div class="num" id="todayAlerts">0</div><div class="label">今日告警</div></div>
+      <div class="stat-card"><div class="num" id="todayFeeds">0</div><div class="label">今日喂养</div></div>
+      <div class="stat-card"><div class="num" id="weekAlerts">0</div><div class="label">本周告警</div></div>
+      <div class="stat-card"><div class="num" id="weekFeeds">0</div><div class="label">本周喂养</div></div>
+    </div>
+    <div class="bar-chart">
+      <h3>📈 近7天告警趋势</h3>
+      <div id="chartBars"></div>
+    </div>
+  </div>
+
+  <!-- AI -->
+  <div id="pane-ai" class="tab-pane">
+    <div class="ai-card">
+      <h3>🤖 DeepSeek AI 分析</h3>
+      <p style="font-size:13px;color:#B8A9A5;margin-bottom:10px">基于近期告警和喂养数据，分析宝宝作息规律</p>
+      <div class="ai-result" id="aiResult">点击下方按钮开始分析</div>
+      <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">🔍 开始AI分析</button>
+      <div class="api-cfg">
+        <label>DeepSeek API Key（已预置，可自行更换）</label>
+        <input type="password" id="apiKey" value="" placeholder="sk-xxxxxxxx">
+        <button onclick="saveApiKey()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ 底部导航栏 ═══════════════ -->
+<div class="tab-bar">
+  <button class="active" onclick="switchTab('alerts')"><span class="tb-icon">🚨</span>告警</button>
+  <button onclick="switchTab('feeding')"><span class="tb-icon">🍼</span>喂养</button>
+  <button onclick="switchTab('stats')"><span class="tb-icon">📊</span>统计</button>
+  <button onclick="switchTab('ai')"><span class="tb-icon">🤖</span>AI分析</button>
+</div>
+
+<script>
+var deviceId='',started=false,mqttStatus=0,overlayActive=false;
+var beepTimer=null,audioOsc=null,audioGain=null,audioCtx=null;
+
+// ═══════════════ 设备绑定 ═══════════════
+function initBind(){
+  deviceId=localStorage.getItem('device_id')||'';
+  if(deviceId){document.getElementById('bindPage').classList.add('hidden');document.getElementById('deviceInfo').textContent='设备: '+deviceId;}
+}
+function showBind(){document.getElementById('bindDeviceId').value=deviceId;document.getElementById('bindPage').classList.remove('hidden');}
+function doBind(){
+  var id=document.getElementById('bindDeviceId').value.trim();
+  if(!id){alert('请输入设备 ID');return;}
+  deviceId=id;localStorage.setItem('device_id',deviceId);
+  document.getElementById('bindPage').classList.add('hidden');
+  document.getElementById('deviceInfo').textContent='设备: '+deviceId;
+  if(started&&typeof Android!=='undefined'){Android.stopService();setTimeout(function(){Android.startService();},600);}
+}
+
+// ═══════════════ 服务控制 ═══════════════
+function toggleService(){started?stopService():startService();}
+function startSvc(){startService();}
+function startService(){
+  if(!deviceId){showBind();return;}
+  hideError();
+  if(typeof Android!=='undefined'){
+    try{Android.startService();}catch(e){showError('启动失败: '+e);return;}
+  }
+  started=true;localStorage.setItem('started','1');updateUI();
+}
+function stopService(){
+  if(typeof Android!=='undefined'){try{Android.stopAlarm();Android.stopService();}catch(e){}}
+  started=false;localStorage.removeItem('started');updateUI();
+}
+function showError(m){var e=document.getElementById('errMsg');e.textContent=m;e.style.display='block';setTimeout(function(){e.style.display='none'},4000);}
+function hideError(){document.getElementById('errMsg').style.display='none';}
+
+// ═══════════════ 告警弹窗 ═══════════════
+function onNewAlert(cls,score){
+  if(overlayActive)return;
+  var pct=Math.round((score||0)*100);
+  document.getElementById('overlayMsg').textContent=/cry|help/i.test(cls)?'🚼 检测到婴儿哭声！':'⚠ 检测到异常声音';
+  document.getElementById('overlaySub').textContent='类别: '+cls+'  置信度: '+pct+'%';
+  document.getElementById('overlay').classList.add('show');overlayActive=true;
+  startBeep();if(navigator.vibrate)navigator.vibrate([500,200,500,200,500,200,1000]);
+  loadAlerts();
+}
+function dismissAlert(){
+  document.getElementById('overlay').classList.remove('show');overlayActive=false;stopBeep();
+  if(typeof Android!=='undefined')Android.stopAlarm();if(navigator.vibrate)navigator.vibrate(0);
+}
+function startBeep(){
+  stopBeep();
+  try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();audioOsc=audioCtx.createOscillator();audioGain=audioCtx.createGain();
+    audioOsc.type='square';audioOsc.frequency.value=880;audioGain.gain.value=0;
+    audioOsc.connect(audioGain);audioGain.connect(audioCtx.destination);audioOsc.start();
+    var on=true;beepTimer=setInterval(function(){if(audioGain)audioGain.gain.value=on?0.35:0;on=!on;},300);}catch(e){}
+}
+function stopBeep(){
+  if(beepTimer){clearInterval(beepTimer);beepTimer=null;}
+  try{if(audioOsc){audioOsc.stop();audioOsc.disconnect();}if(audioGain)audioGain.disconnect();if(audioCtx)audioCtx.close();}catch(e){}
+  audioOsc=null;audioGain=null;audioCtx=null;
+}
+
+// ═══════════════ 告警 CRUD ═══════════════
+function loadAlerts(){
+  var list=document.getElementById('alertList');
+  if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
+  var data=JSON.parse(Android.getAlerts()||'[]');
+  if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
+  var h='';
+  for(var i=0;i<data.length;i++){
+    var a=data[i],d=new Date(a.time),cry=/cry|help/i.test(a.cls||'');
+    h+='<div class="alert-item'+(cry?' cry-card':'')+'"><span class="icon">'+(cry?'🚼':'🔔')+'</span>'+
+      '<div class="info"><div class="cls'+(cry?' cry':'')+'">'+esc(a.cls)+'</div>'+
+      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+Math.round((a.score||0)*100)+'%</div></div>'+
+      '<button class="del" onclick="delAlert('+a.id+')">删除</button></div>';
+  }
+  list.innerHTML=h;
+}
+function delAlert(id){if(typeof Android!=='undefined')Android.deleteAlert(id);loadAlerts();}
+function clearAlerts(){if(!confirm('确定清空所有告警？'))return;if(typeof Android!=='undefined')Android.clearAlerts();loadAlerts();}
+
+// ═══════════════ 喂养 ═══════════════
+function addFeeding(){
+  var n=document.getElementById('feedNote').value.trim();
+  if(typeof Android!=='undefined')Android.addFeeding(n);
+  document.getElementById('feedNote').value='';loadFeedings();
+}
+function loadFeedings(){
+  var list=document.getElementById('feedList');
+  if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
+  var data=JSON.parse(Android.getFeedings()||'[]');
+  if(!data.length){list.innerHTML='<div class="empty">🍼 暂无喂养记录</div>';return;}
+  var h='';
+  for(var i=0;i<data.length;i++){
+    var f=data[i],d=new Date(f.time);
+    h+='<div class="feed-item"><div class="fleft"><div class="fts">🍼 喂养</div>'+
+      '<div class="fnt">'+d.toLocaleString('zh-CN')+' · '+esc(f.note||'无备注')+'</div></div>'+
+      '<button class="del" onclick="delFeeding('+f.id+')">删除</button></div>';
+  }
+  list.innerHTML=h;
+}
+function delFeeding(id){if(typeof Android!=='undefined')Android.deleteFeeding(id);loadFeedings();}
+
+// ═══════════════ 统计 ═══════════════
+function loadStats(){
+  if(typeof Android==='undefined')return;
+  document.getElementById('todayAlerts').textContent=Android.getTodayAlerts();
+  document.getElementById('todayFeeds').textContent=Android.getTodayFeedings();
+  var alerts=JSON.parse(Android.getAlerts()||'[]'),feeds=JSON.parse(Android.getFeedings()||'[]');
+  var wa=0,wf=0,weekAgo=Date.now()-7*86400000,days=[],dayMap={};
+  for(var i=0;i<7;i++){var k=new Date(Date.now()-(6-i)*86400000).toLocaleDateString('zh-CN');dayMap[k]=0;days.push(k);}
+  for(var i=0;i<alerts.length;i++){if(alerts[i].time>weekAgo)wa++;var dk=new Date(alerts[i].time).toLocaleDateString('zh-CN');if(dayMap[dk]!==undefined)dayMap[dk]++;}
+  for(var i=0;i<feeds.length;i++){if(feeds[i].time>weekAgo)wf++;}
+  document.getElementById('weekAlerts').textContent=wa;document.getElementById('weekFeeds').textContent=wf;
+  var maxV=Math.max(1,Math.max.apply(null,Object.values(dayMap))),bars='';
+  days.forEach(function(k){var v=dayMap[k],w=Math.round(v/maxV*100);
+    bars+='<div class="bar-row"><span class="day">'+k.slice(5)+'</span><div class="bar"><div class="fill" style="width:'+w+'%"></div>'+(v>0?'<span>'+v+'</span>':'')+'</div></div>';});
+  document.getElementById('chartBars').innerHTML=bars;
+}
+
+// ═══════════════ MQTT 状态 ═══════════════
+function pollMqtt(){
+  if(typeof Android==='undefined')return;
+  var s=Android.getConnStatus();mqttStatus=s;
+  var dot=document.getElementById('mqttDot'),label=document.getElementById('mqttLabel');
+  dot.className='mqtt-dot '+(s===2?'on':s===1?'mid':'off');
+  var mc=Android.getMsgCount();
+  if(s===2){label.textContent='🟢 MQTT 已连接 · 收到'+mc+'条';label.className='stxt ok';}
+  else if(s===1){label.textContent='🟡 MQTT 连接中...';label.className='stxt err';}
+  else{label.textContent='🔴 MQTT 未连接';label.className='stxt err';}
+}
+
+// ═══════════════ AI ═══════════════
+function saveApiKey(){var k=document.getElementById('apiKey').value.trim();if(k)localStorage.setItem('ds_api_key',k);alert('已保存');}
+function runAiAnalysis(){
+  var apiKey=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value.trim();
+  if(!apiKey){alert('请先填入 DeepSeek API Key');return;}
+  var btn=document.getElementById('btnAi');btn.textContent='⏳ 分析中...';btn.disabled=true;
+  var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlerts():null)||'[]');
+  var feeds=JSON.parse((typeof Android!=='undefined'?Android.getFeedings():null)||'[]');
+  var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,at=[];
+  for(var i=0;i<alerts.length;i++){if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));}
+  for(var i=0;i<feeds.length;i++){if(feeds[i].time>=ds)tf++;}
+  var prompt='你是婴儿护理专家。数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养\n\n请分析哭声规律、喂养间隔建议、综合护理建议。限300字。';
+  fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+    body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
+  }).then(function(r){return r.json()}).then(function(d){
+    document.getElementById('aiResult').textContent=d.choices?d.choices[0].message.content:'失败: '+JSON.stringify(d);
+    btn.textContent='🔍 开始AI分析';btn.disabled=false;
+  }).catch(function(e){document.getElementById('aiResult').textContent='网络错误: '+e.message;btn.textContent='🔍 开始AI分析';btn.disabled=false;});
+}
+
+// ═══════════════ Tab 切换 ═══════════════
+function switchTab(name){
+  var btns=document.querySelectorAll('.tab-bar button'),panes=document.querySelectorAll('.tab-pane');
+  btns.forEach(function(b){b.classList.remove('active');});
+  panes.forEach(function(p){p.classList.remove('active');});
+  event.target.closest('button').classList.add('active');
+  document.getElementById('pane-'+name).classList.add('active');
+  if(name==='alerts')loadAlerts();if(name==='feeding')loadFeedings();if(name==='stats')loadStats();
+}
+
+// ═══════════════ UI ═══════════════
+function updateUI(){
+  var btn=document.getElementById('btnToggle');
+  if(started){btn.textContent='⏹ 停止';btn.style.background='#A8D8CA';}
+  else{btn.textContent='▶ 开启';btn.style.background='#F2A0A0';}
+}
+function refresh(){updateUI();loadStats();}
+function esc(s){var d=document.createElement('div');d.textContent=(s||'');return d.innerHTML;}
+
+// ═══════════════ 轮询 ═══════════════
+setInterval(function(){pollMqtt();if(started)loadStats();if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();},5000);
+
+// ═══════════════ 初始化 ═══════════════
+(function init(){
+  initBind();
+  var sk=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value;
+  document.getElementById('apiKey').value=sk;
+  if(!localStorage.getItem('ds_api_key'))localStorage.setItem('ds_api_key',sk);
+  updateUI();pollMqtt();loadStats();
+})();
+</script>
+</body>
+</html>

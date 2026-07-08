@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make clean *)",
+      "Bash(make -j8)",
+      "Bash(openocd -f interface/stlink.cfg -c \"transport select swd\" -f target/stm32h7x.cfg -c \"program build/h743vit6_aihear.elf verify reset exit\")",
+      "Bash(ls Source/FullyConnectedFunctions/arm_fully_connected_s8.c)",
+      "Bash(ls Source/BasicMathFunctions/arm_elementwise_add_s8.c)",
+      "Bash(ls Source/SoftmaxFunctions/arm_softmax_s8.c)"
+    ]
+  }
+}

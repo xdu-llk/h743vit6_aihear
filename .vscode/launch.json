@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "STM32H7 Debug (OpenOCD)",
+            "cwd": "${workspaceRoot}",
+            "executable": "${workspaceRoot}/build/h743vit6_aihear.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32h7x.cfg"
+            ],
+            "svdFile": "${workspaceRoot}/STM32H743.svd"
+        }
+    ]
+}

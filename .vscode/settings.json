@@ -1,0 +1,5 @@
+{
+    "stm32-for-vscode.openOCDPath": "C:\\Users\\jeveux\\AppData\\Roaming\\xPacks\\@xpack-dev-tools\\openocd\\0.12.0-7.1\\.content\\bin\\openocd.EXE",
+    "stm32-for-vscode.armToolchainPath": "C:\\arm_gcc\\bin",
+    "cmake.sourceDirectory": "D:/stm32cubemx/projects/h743vit6_aihear/Drivers/CMSIS/NN"
+}

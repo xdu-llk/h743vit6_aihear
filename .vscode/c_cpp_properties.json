@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "STM32H743",
+            "includePath": [
+                "${workspaceRoot}/Core/Inc",
+                "${workspaceRoot}/Drivers/STM32H7xx_HAL_Driver/Inc",
+                "${workspaceRoot}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
+                "${workspaceRoot}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceRoot}/Drivers/CMSIS/Include"
+            ],
+            "defines": [
+                "USE_PWR_LDO_SUPPLY",
+                "USE_HAL_DRIVER",
+                "STM32H743xx",
+                "__weak=__attribute__((weak))"
+            ],
+            "compilerPath": "C:/arm_gcc/bin/arm-none-eabi-gcc.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm"
+        }
+    ],
+    "version": 4
+}
