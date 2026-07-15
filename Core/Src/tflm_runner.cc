@@ -62,6 +62,10 @@ void TFLM_Init(void)
   }
   MicroPrintf("[TFLM] 3/3 Ops ok\n");
 
+  /* Flush SRAM writes before TFLM touches arena */
+  __DSB();
+  __ISB();
+
   static tflite::MicroInterpreter static_interpreter(
       model, op_resolver, tensor_arena, kTensorArenaSize);
   interpreter = &static_interpreter;

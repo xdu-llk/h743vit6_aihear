@@ -102,7 +102,17 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  /* AXI SRAM cold-boot: clear all 512KB for ECC parity init */
+  memset((void *)0x24000000, 0, 512 * 1024);
 
+  /* Boot watchdog: auto-retry if cold boot hangs (~1.5s) */
+  __HAL_RCC_LSI_ENABLE();
+  while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
+  IWDG1->KR = 0x5555;
+  IWDG1->PR = 5;
+  IWDG1->RLR = 375;
+  IWDG1->KR = 0xAAAA;
+  IWDG1->KR = 0xCCCC;
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -120,18 +130,21 @@ int main(void)
   Alarm_Init();
   RGB_Init();
 
+  AudioPreproc_Init();
+  printf("[PREPROC] Log-mel spectrogram ready (%dx%d)\n",
+         PREPROC_NUM_MELS, PREPROC_NUM_FRAMES);
 
   printf("[TFLM] Initializing...\n");
   TFLM_Init();
   printf("[TFLM] Ready.\n");
 
-  AudioPreproc_Init();
-  printf("[PREPROC] Log-mel spectrogram ready (%dx%d)\n",
-         PREPROC_NUM_MELS, PREPROC_NUM_FRAMES);
-
   /* DS-CNN model ready — input 40x32, output 2-class (baby_cry/other) */
 
-  /* Init ESP32 UART AFTER critical inits to avoid IRQ interference */
+  /* Drain UART4 RX FIFO — ESP8266 may have sent junk during STM32 reset */
+  HAL_UART_DeInit(&huart4);
+  MX_UART4_Init();
+  __HAL_UART_FLUSH_DRREGISTER(&huart4);
+
   WifiIoT_Init();
   HAL_Delay(200);  /* let UART4 settle after ESP32 boot burst */
 
@@ -159,10 +172,11 @@ int main(void)
   /* IWDG: ~8s watchdog, auto-reset if main loop hangs */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
-  IWDG1->KR = 0x5555;
-  IWDG1->PR = 6;  /* /256 = 125Hz from 32kHz */
-  IWDG1->RLR = 999;  /* 999/125 = ~8s */
-  IWDG1->KR = 0xCCCC;
+  IWDG1->KR = 0x5555;   /* Unlock */
+  IWDG1->PR = 6;        /* /256 = 125Hz from 32kHz */
+  IWDG1->RLR = 999;     /* 999/125 = ~8s */
+  IWDG1->KR = 0xAAAA;   /* Reload */
+  IWDG1->KR = 0xCCCC;   /* Start */
 
   /* Start TIM6 PWM for RGB LED — AFTER all init to avoid IRQ interference */
   __HAL_TIM_SET_AUTORELOAD(&htim6, 99);
@@ -207,12 +221,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 60;
-  RCC_OscInitStruct.PLL.PLLP = 1;
+  RCC_OscInitStruct.PLL.PLLM = 5;
+  RCC_OscInitStruct.PLL.PLLN = 192;
+  RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)

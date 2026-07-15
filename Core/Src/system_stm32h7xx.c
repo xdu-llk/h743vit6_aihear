@@ -53,7 +53,7 @@
 #include <math.h>
 
 #if !defined  (HSE_VALUE)
-#define HSE_VALUE    ((uint32_t)8000000) /* 8MHz HSE */
+#define HSE_VALUE    ((uint32_t)25000000) /* Matches old firmware UART baud */
 #endif /* HSE_VALUE */
 
 #if !defined  (CSI_VALUE)
