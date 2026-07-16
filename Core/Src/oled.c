@@ -118,7 +118,7 @@ static void oled_char(uint8_t x, uint8_t y, char c) {
   for (uint8_t i = 0; i < 6; i++) oled_dat(bm[i]);
 }
 
-void OLED_ShowStatus(const char *state, const char *cls, uint32_t peak) {
+void OLED_ShowStatus(const char *state, const char *cls, float dbfs) {
   static uint32_t last_ms = 0;
   uint32_t now = HAL_GetTick();
   if (now - last_ms < 500) return;
@@ -135,8 +135,8 @@ void OLED_ShowStatus(const char *state, const char *cls, uint32_t peak) {
   for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i*6, 2, buf[i]);
   for (uint8_t x = 0; x < 128; x++) { oled_cmd(0xB4); oled_cmd(0x00+(x&0xF)); oled_cmd(0x10+(x>>4)); oled_dat(0); }
   if (strcmp(state, "DISARMED") != 0) {
-    if (cls) snprintf(buf, sizeof(buf), "%s %lu", cls, peak);
-    else snprintf(buf, sizeof(buf), "P:%lu", peak);
+    if (cls) snprintf(buf, sizeof(buf), "%s %.0fdB", cls, (double)dbfs);
+    else      snprintf(buf, sizeof(buf), "%.0f dB", (double)dbfs);
     for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i*6, 4, buf[i]);
   }
   taskEXIT_CRITICAL();

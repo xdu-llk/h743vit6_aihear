@@ -60,6 +60,7 @@ static void vAudioInferTask(void *pvParameters)
 
     const float *feat = AudioPreproc_GetFeatures();
     uint32_t peak = Audio_GetPeak();
+    float dbfs = Audio_GetDBFS();
 
 #if RECORD_MODE
     /* Fast PCM dump: send 2000 samples (~1s serial), skip quiet, 2s cooldown. */
@@ -81,9 +82,9 @@ static void vAudioInferTask(void *pvParameters)
 
     float scores[2];
     if (!armed) {
-      OLED_ShowStatus("DISARMED", NULL, peak);
+      OLED_ShowStatus("DISARMED", NULL, dbfs);
     } else if (peak < 70000) {
-      OLED_ShowStatus("ARMED", NULL, peak);
+      OLED_ShowStatus("ARMED", NULL, dbfs);
     } else if (xTaskGetTickCount() < alert_until) {
     } else if (TFLM_Infer(feat, scores)) {
       int top = (scores[0] >= scores[1]) ? 0 : 1;
@@ -93,7 +94,7 @@ static void vAudioInferTask(void *pvParameters)
       if (top == 0 && margin >= 0.8f) {
         printf("\r\n[DETECT] %s m=%.2f (%+.2f %+.2f) pk=%lu\r\n",
                names[0], (double)margin, (double)scores[0], (double)scores[1], peak);
-        OLED_ShowStatus("ALERT!", names[0], peak);
+        OLED_ShowStatus("ALERT!", names[0], dbfs);
         Alarm_SetState(ALARM_STATE_ALERT);
         alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
         Buzzer_Siren();
@@ -108,13 +109,13 @@ static void vAudioInferTask(void *pvParameters)
         static int cnt = 0;
         if (++cnt % 10 == 1)
           printf("\r\n[%s] %s m=%.2f pk=%lu\r\n", lvl, names[0], (double)margin, peak);
-        OLED_ShowStatus(lvl, NULL, peak);
+        OLED_ShowStatus(lvl, NULL, dbfs);
       } else {
         /* other: always NORMAL */
         static int cnt2 = 0;
         if (++cnt2 % 10 == 1)
           printf("\r\n[NORMAL] %s m=%.2f pk=%lu\r\n", names[1], (double)margin, peak);
-        OLED_ShowStatus("NORMAL", NULL, peak);
+        OLED_ShowStatus("NORMAL", NULL, dbfs);
       }
     }
 

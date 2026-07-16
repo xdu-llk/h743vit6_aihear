@@ -3,5 +3,5 @@
 #define __OLED_H__
 #include "main.h"
 void OLED_Init(void);
-void OLED_ShowStatus(const char *state, const char *cls, uint32_t peak);
+void OLED_ShowStatus(const char *state, const char *cls, float dbfs);
 #endif

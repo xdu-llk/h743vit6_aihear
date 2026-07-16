@@ -8,6 +8,7 @@
 
 void     Audio_Init(void);
 uint32_t Audio_GetPeak(void);
+float    Audio_GetDBFS(void);
 int      Audio_ReadSamples(int32_t *dst, int offset, int count);
 
 #endif

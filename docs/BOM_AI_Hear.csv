@@ -1,17 +1,19 @@
 序号,元件名称,规格/型号,数量,封装,用途,备注
-1,MCU核心板,鹿小班 STM32H743VIT6 V2.0,1,核心板,主控,,已购
+1,MCU核心板,鹿小班 STM32H743VIT6 V2.0,1,核心板,主控,已购
 2,INMP441麦克风模块,I2S MEMS麦克风,1,模块,音频采集,VCC=3.3V L/R=GND
 3,ESP8266-01S模块,WiFi模块 ESP8266-01S,1,模块,WiFi+MQTT通信,独立固件 非AT透传
 4,SSD1306 OLED,128x64 0.96寸 I2C,1,模块,状态显示,VCC=3.3V
-5,RGB LED,共阴 5mm三色,1,插件直插,报警状态指示,红PB4 绿PB5 蓝PB8
+5,RGB LED,共阴 5mm三色,1,插件直插,报警状态指示,红PB4 绿PB5 蓝PB8 各串220Ω
 6,有源蜂鸣器,3.3V 有源蜂鸣器(电磁式),1,插件直插,报警声音,TIM3 PWM PB0驱动
-7,轻触按键,6x6mm 两脚,2,插件直插,布防(PC4)+WiFi重置(GPIO0),短按布防 长按3秒复位
-8,USB转TTL模块,CH340N,1,模块/USB,调试串口,PA9(TX) PA10(RX)
-9,ST-Link V3,调试烧录器,1,模块,程序烧录调试,SWDIO/SWCLK/GND/3.3V
-10,排针排母,2.54mm间距,若干,,模块与核心板连接,,
-11,杜邦线,公母/母母,若干,,接线,,
-12,面包板或PCB,5x7cm以上,1,,搭电路,,
-13,电源适配器,5V 2A MicroUSB/USB-C,1,,系统供电,核心板USB口供电
+7,轻触按键,6x6mm 两脚,2,插件直插,布防(PC4)+WiFi重置(ESP GPIO0),短按布防 长按3秒复位
+8,电阻,220Ω ±5% 0805,3,贴片0805,RGB LED限流,
+9,排针,2.54mm 4pin 直针,1,插件直插,TTL调试口,PA9 TX / PA10 RX / 3.3V / GND
+10,USB转TTL模块,CH340N,1,模块/USB,调试串口,PA9(TX) PA10(RX)
+11,ST-Link V3,调试烧录器,1,模块,程序烧录调试,SWDIO/SWCLK/GND/3.3V
+12,排针排母,2.54mm间距,若干,插件,模块与核心板连接,
+13,杜邦线,公母/母母,若干,,接线,
+14,面包板或PCB,5x7cm以上,1,,搭电路,
+15,电源适配器,5V 2A MicroUSB/USB-C,1,,系统供电,核心板USB口供电
 ========================================
 引脚接线对照表
 ========================================
@@ -24,22 +26,25 @@ INMP441 GND,GND,,地
 INMP441 L/R,GND,,左声道
 ESP8266 TX,PA1(UART4 RX),连接,交叉连接
 ESP8266 RX,PA0(UART4 TX),连接,交叉连接
+ESP8266 RST,PA2,输出,STM32硬复位控制（新增 v2.0）
 ESP8266 VCC,3.3V,,供电(注意电流≥300mA)
-ESP8266 CH_PD,3.3V,,使能脚拉高
+ESP8266 EN,3.3V,,使能脚拉高
 ESP8266 GND,GND,,地
 OLED SCL,PD0,输出,I2C时钟(bit-bang)
 OLED SDA,PD1,输入输出,I2C数据(bit-bang)
 OLED VCC,3.3V,,供电
 OLED GND,GND,,地
-RGB LED R,PB4,输出,红色通道
-RGB LED G,PB5,输出,绿色通道
-RGB LED B,PB8,输出,蓝色通道
+RGB LED R(串220Ω),PB4,输出,红色通道
+RGB LED G(串220Ω),PB5,输出,绿色通道
+RGB LED B(串220Ω),PB8,输出,蓝色通道
 RGB LED 公共端,GND,,共阴
 蜂鸣器 +,PB0(TIM3 CH3),输出,PWM驱动
 蜂鸣器 -,GND,,地
 按键1(STM32),PC4,输入,短按布防/撤防 长按3秒系统复位,上拉 按下=0
-按键2(ESP8266),GPIO0→GND,输入,长按5秒重置WiFi配网,上拉 按下=0
-USB-TTL TX,PA10(RX),连接,调试串口
-USB-TTL RX,PA9(TX),连接,调试串口
+按键2(ESP8266),ESP GPIO0,输入,长按5秒重置WiFi配网,上拉 按下=0
+TTL排针 TX,PA10(RX),连接,调试串口（新增）
+TTL排针 RX,PA9(TX),连接,调试串口（新增）
+TTL排针 3.3V,3.3V,,供电（新增）
+TTL排针 GND,GND,,地（新增）
 ST-Link SWDIO,PA13,,烧录
 ST-Link SWCLK,PA14,,烧录

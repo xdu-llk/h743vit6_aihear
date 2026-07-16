@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
+#include <math.h>
 
 /* Task handle — set by freertos.c, used by ISR callbacks */
 extern TaskHandle_t hAudioTask;
@@ -65,6 +66,21 @@ void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
       portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
   }
+}
+
+float Audio_GetDBFS(void)
+{
+  uint32_t r = (wr - 256) & (RING_BUF_SIZE - 1);
+  float sum_sq = 0.0f;
+  for (int i = 0; i < 256; i++) {
+    float v = (float)ring[r];
+    sum_sq += v * v;
+    r = (r + 1) & (RING_BUF_SIZE - 1);
+  }
+  float rms = sqrtf(sum_sq / 256.0f);
+  /* 24-bit signed PCM full scale = 2^23 */
+  if (rms < 1.0f) return -60.0f;  /* silence floor */
+  return 20.0f * log10f(rms / 8388608.0f);
 }
 
 uint32_t Audio_GetPeak(void)
