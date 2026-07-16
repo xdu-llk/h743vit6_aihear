@@ -17,6 +17,7 @@ void     WifiIoT_Init(void);
 void     WifiIoT_Process(void);
 void     WifiIoT_Publish(const char *topic, const char *payload);   /* link down → enqueue */
 void     WifiIoT_FlushPending(void);                                 /* call every loop */
+void     WifiIoT_ResetEsp(void);                                      /* PA2 low 10ms → hard reset */
 void     WifiIoT_QueryStatus(void);
 uint8_t  WifiIoT_GetWifiState(void);
 uint8_t  WifiIoT_GetMqttState(void);

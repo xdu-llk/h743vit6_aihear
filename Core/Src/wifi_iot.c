@@ -7,6 +7,10 @@
 #define LINE_BUF_SIZE 256
 #define STATUS_TIMEOUT_MS  15000   /* mark offline if no +STATUS for 15 s */
 #define PENDING_QUEUE_SIZE 4       /* max stored alerts/status when link is down */
+#define ESP_RESET_DEADLINE_MS 30000 /* hard-reset ESP after 30 s of no STATUS */
+#define ESP_MAX_RESETS  3          /* max hard resets per power cycle */
+#define ESP_RST_PORT    GPIOA
+#define ESP_RST_PIN     GPIO_PIN_2
 
 static volatile char  rx_ring[RX_RING_SIZE];
 static volatile uint16_t rx_wr = 0;
@@ -30,6 +34,10 @@ static volatile uint32_t last_status_ms  = 0;
 
 /* ── device identity ── */
 static char device_id[32];  /* captured from ESP +DEVICEID:aihear_XXXXXX */
+
+/* ── ESP hard-reset tracking ── */
+static uint32_t esp_down_since_ms = 0;  /* millis() when link first went down */
+static uint8_t  esp_reset_count   = 0;  /* resets this power cycle */
 
 /* ── pending message queue (link-down buffer) ── */
 typedef struct {
@@ -126,6 +134,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void WifiIoT_Init(void)
 {
+  /* ESP RST pin (PA2) — output high, don't reset */
+  GPIO_InitTypeDef g = {0};
+  g.Pin   = ESP_RST_PIN;
+  g.Mode  = GPIO_MODE_OUTPUT_PP;
+  g.Pull  = GPIO_NOPULL;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ESP_RST_PORT, &g);
+  HAL_GPIO_WritePin(ESP_RST_PORT, ESP_RST_PIN, GPIO_PIN_SET);
+
   uart_start_rx();
   printf("[WiFiIoT] Init done, waiting for ESP +READY...\r\n");
 }
@@ -204,19 +221,59 @@ void WifiIoT_FlushPending(void)
 
   if (!ready && was_ready) {
     printf("[WiFiIoT] Link lost — queueing enabled\r\n");
+    esp_down_since_ms = HAL_GetTick();
   }
 
-  if (ready && !was_ready && pending_count > 0) {
-    printf("[WiFiIoT] Link recovered — flushing %d pending\r\n", pending_count);
-    for (int i = 0; i < PENDING_QUEUE_SIZE; i++) {
-      if (pending_queue[i].valid) {
-        PublishRaw(pending_queue[i].topic, pending_queue[i].payload);
-        pending_queue[i].valid = 0;
-        pending_count--;
+  /* Auto hard-reset ESP if link stays down for ESP_RESET_DEADLINE_MS */
+  if (!ready && esp_down_since_ms > 0 &&
+      (HAL_GetTick() - esp_down_since_ms) >= ESP_RESET_DEADLINE_MS) {
+    if (esp_reset_count < ESP_MAX_RESETS) {
+      printf("[WiFiIoT] ESP dead >%lums — hard reset (attempt %d/%d)\r\n",
+             (unsigned long)ESP_RESET_DEADLINE_MS,
+             esp_reset_count + 1, ESP_MAX_RESETS);
+      WifiIoT_ResetEsp();
+      esp_down_since_ms  = HAL_GetTick();  /* reset deadline after reboot */
+      esp_reset_count++;
+    } else {
+      /* give up — don't keep resetting forever */
+      if (esp_down_since_ms > 0 && (HAL_GetTick() - esp_down_since_ms) >=
+          ESP_RESET_DEADLINE_MS + 10000) {
+        printf("[WiFiIoT] ESP max resets reached — giving up\r\n");
+        esp_down_since_ms = 0; /* stop trying */
       }
     }
   }
+
+  if (ready && !was_ready) {
+    if (pending_count > 0) {
+      printf("[WiFiIoT] Link recovered — flushing %d pending\r\n", pending_count);
+      for (int i = 0; i < PENDING_QUEUE_SIZE; i++) {
+        if (pending_queue[i].valid) {
+          PublishRaw(pending_queue[i].topic, pending_queue[i].payload);
+          pending_queue[i].valid = 0;
+          pending_count--;
+        }
+      }
+    }
+    esp_down_since_ms = 0;  /* link healthy again */
+  }
   was_ready = ready;
+}
+
+void WifiIoT_ResetEsp(void)
+{
+  printf("[WiFiIoT] Hard-resetting ESP (PA2 low)...\r\n");
+  HAL_GPIO_WritePin(ESP_RST_PORT, ESP_RST_PIN, GPIO_PIN_RESET);
+  HAL_Delay(10);   /* RST must be low ≥ 100 µs */
+  HAL_GPIO_WritePin(ESP_RST_PORT, ESP_RST_PIN, GPIO_PIN_SET);
+  HAL_Delay(500);  /* give ESP time to boot */
+
+  /* Reset state — ESP will re-announce +DEVICEID and +READY */
+  wifi_state  = 0;
+  mqtt_state  = 0;
+  esp_ready   = 0;
+  last_status_ms = 0;
+  printf("[WiFiIoT] ESP reset complete, waiting for +READY...\r\n");
 }
 
 void WifiIoT_QueryStatus(void)
