@@ -27,13 +27,17 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
  * AI Hear — MQTT 后台监护服务
- * 使用 MQTT 3.1.1 协议连接 HiveMQ 公共 Broker，订阅 aihear/alert 主题。
+ * 使用 MQTT 3.1.1 协议连接公共 Broker，订阅设备级 v1 主题。
  * 收到 baby_cry 告警时发送系统通知 + 震动，所有告警持久化到 SQLite。
  */
 public class MqttService extends Service {
@@ -44,13 +48,17 @@ public class MqttService extends Service {
     public static String sBrokerHost = "broker-cn.emqx.io";
     public static int    sBrokerPort = 1883;
     private static final int    KEEPALIVE_SEC = 60;
-    private static final String TOPIC_ALERT  = "aihear/alert";
-    private static final String TOPIC_STATUS = "aihear/status";
+    private static final String TOPIC_ALERT_FILTER  = "aihear/v1/demo/+/alert";
+    private static final String TOPIC_STATUS_FILTER = "aihear/v1/demo/+/status";
+    private static final String TOPIC_LEGACY_DEVICE_ALERT_FILTER = "aihear/+/alert";
+    private static final String TOPIC_LEGACY_STATUS = "aihear/status";
+    private static final String PREFS_NAME = "aihear_mqtt";
+    private static final String KEY_CLIENT_ID = "mqtt_client_id";
 
     // ── 通知 ID：前台服务与告警分开，互不影响 ──
     private static final String CH_ID = "aihear_channel";
     private static final int    NID_FOREGROUND = 1;
-    private static final int    NID_ALERT      = 2;
+    private static final int    NID_ALERT_BASE = 1000;
 
     // ── 告警冷却 10 秒，避免刷屏 ──
     private static final long   ALERT_COOLDOWN_MS = 10_000;
@@ -68,18 +76,19 @@ public class MqttService extends Service {
 
     private Handler   mainHandler;
     private Vibrator  vibrator;
-    private long      lastAlertMs = 0;
     private AlertDbHelper db;
     private PowerManager.WakeLock wakeLock;
+    private AlarmReceiver stopReceiver;
+    private final Map<String, Long> lastAlertByDevice = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastDbByDeviceClass = new ConcurrentHashMap<>();
+    private final Set<Integer> activeAlertNotifications = new HashSet<>();
+    private static final ConcurrentHashMap<String, Long> sDeviceLastSeen =
+        new ConcurrentHashMap<>();
 
     // ── 对外可读状态 ──
     String lastAlertClass = "";
     double lastAlertScore = 0;
     long   lastAlertTs    = 0;
-
-    // 10 分钟去重
-    private String lastDbClass = "";
-    private long   lastDbMs    = 0;
 
     // ═══════════════════════════════════════════════════════════════
     // 生命周期
@@ -102,10 +111,11 @@ public class MqttService extends Service {
 
         // Android 14+ 要求注册广播时指定导出标志
         IntentFilter f = new IntentFilter(ACTION_STOP);
+        stopReceiver = new AlarmReceiver();
         if (Build.VERSION.SDK_INT >= 34) {
-            registerReceiver(new AlarmReceiver(), f, RECEIVER_NOT_EXPORTED);
+            registerReceiver(stopReceiver, f, RECEIVER_NOT_EXPORTED);
         } else {
-            registerReceiver(new AlarmReceiver(), f);
+            registerReceiver(stopReceiver, f);
         }
 
         // 必须在 5 秒内调 startForeground
@@ -134,7 +144,7 @@ public class MqttService extends Service {
             mqttThread.interrupt();
             try { mqttThread.join(2000); } catch (InterruptedException ignored) {}
         }
-        try { unregisterReceiver(new AlarmReceiver()); } catch (Exception ignored) {}
+        try { if (stopReceiver != null) unregisterReceiver(stopReceiver); } catch (Exception ignored) {}
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (db != null) { db.close(); }
         super.onDestroy();
@@ -181,41 +191,33 @@ public class MqttService extends Service {
                         continue;
                     }
                     int connackType  = (connack[0] >> 4) & 0x0F;
+                    int connackFlags = connack[2] & 0xFF;
                     int connackRc    = connack[3] & 0xFF;
+                    boolean sessionPresent = (connackFlags & 0x01) != 0;
                     if (connackType != 2 || connackRc != 0) {
                         Log.w(TAG, "CONNACK 失败 type=" + connackType + " rc=" + connackRc);
                         sock.close();
                         backoff = backoff(backoff, maxBackoff);
                         continue;
                     }
-                    Log.i(TAG, "CONNACK OK");
+                    Log.i(TAG, "CONNACK OK sessionPresent=" + sessionPresent);
 
-                    // ── MQTT SUBSCRIBE ──
-                    byte[] subPkt = buildSubscribe(TOPIC_ALERT);
-                    out.write(subPkt);
-                    out.flush();
-
-                    // 读 SUBACK（5 字节）
-                    byte[] suback = readExact(in, 5);
-                    if (suback == null || suback.length < 5) {
-                        sock.close();
-                        backoff = backoff(backoff, maxBackoff);
-                        continue;
+                    // ── MQTT SUBSCRIBE (skip on session resume) ──
+                    if (!sessionPresent) {
+                        if (!subscribeTopic(in, out, TOPIC_ALERT_FILTER, 1) ||
+                            !subscribeTopic(in, out, TOPIC_STATUS_FILTER, 2) ||
+                            !subscribeTopic(in, out, TOPIC_LEGACY_DEVICE_ALERT_FILTER, 3) ||
+                            !subscribeTopic(in, out, TOPIC_LEGACY_STATUS, 4)) {
+                            sock.close();
+                            backoff = backoff(backoff, maxBackoff);
+                            continue;
+                        }
                     }
-                    int subackType = (suback[0] >> 4) & 0x0F;
-                    int subackRc   = suback[4] & 0xFF;
-                    if (subackType != 9 || subackRc > 2) {
-                        Log.w(TAG, "SUBACK 失败 type=" + subackType + " rc=" + subackRc);
-                        sock.close();
-                        backoff = backoff(backoff, maxBackoff);
-                        continue;
-                    }
-                    Log.i(TAG, "SUBACK OK — 已订阅 " + TOPIC_ALERT);
 
                     // ── 连接成功 ──
                     backoff = 1;
                     updateConnStatus(2);
-                    lastAlertMs = 0; // 首次重连立即允许告警
+                    lastAlertByDevice.clear();
 
                     // 心跳 timing
                     long lastPingMs = System.currentTimeMillis();
@@ -253,10 +255,21 @@ public class MqttService extends Service {
                                 MqttPublish pub = parsePublish(pkt);
                                 if (pub != null) {
                                     Log.i(TAG, "PUBLISH topic=" + pub.topic + " payload=" + pub.payload);
-                                    if (TOPIC_ALERT.equals(pub.topic)) {
-                                        handleAlert(pub.payload);
-                                    } else if (TOPIC_STATUS.equals(pub.topic)) {
-                                        Log.d(TAG, "设备状态: " + pub.payload);
+                                    String alertDevice = deviceIdFromTopic(pub.topic, "alert");
+                                    String statusDevice = deviceIdFromTopic(pub.topic, "status");
+                                    String legacyAlertDevice = deviceIdFromLegacyTopic(pub.topic);
+                                    if (alertDevice != null && DeviceRegistry.contains(this, alertDevice)) {
+                                        handleAlert(alertDevice, pub.topic, pub.payload);
+                                    } else if (statusDevice != null && DeviceRegistry.contains(this, statusDevice)) {
+                                        sDeviceLastSeen.put(statusDevice, System.currentTimeMillis());
+                                        Log.d(TAG, "设备状态 " + statusDevice + ": " + pub.payload);
+                                    } else if (legacyAlertDevice != null &&
+                                               DeviceRegistry.contains(this, legacyAlertDevice)) {
+                                        handleAlert(legacyAlertDevice, pub.topic, pub.payload);
+                                    } else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
+                                        String id = DeviceRegistry.normalize(pub.payload);
+                                        if (DeviceRegistry.contains(this, id))
+                                            sDeviceLastSeen.put(id, System.currentTimeMillis());
                                     }
                                 }
                                 break;
@@ -291,7 +304,7 @@ public class MqttService extends Service {
     // ═══════════════════════════════════════════════════════════════
 
     private byte[] buildConnect() {
-        String clientId = "aihear_" + System.currentTimeMillis();
+        String clientId = getPersistentClientId();
         byte[] cidBytes = clientId.getBytes();
 
         // Variable header: ProtocolName(6) + ProtocolLevel(1) + Flags(1) + KeepAlive(2)
@@ -300,8 +313,8 @@ public class MqttService extends Service {
             0x00, 0x04, 'M','Q','T','T',
             // Protocol Level 4 (MQTT 3.1.1)
             0x04,
-            // Connect Flags: CleanSession=1
-            0x02,
+            // Connect Flags: CleanSession=0 (broker queues QoS-1 messages for offline client)
+            0x00,
             // Keep Alive (seconds)
             (byte)(KEEPALIVE_SEC >> 8), (byte)(KEEPALIVE_SEC & 0xFF)
         };
@@ -330,7 +343,52 @@ public class MqttService extends Service {
         return pkt;
     }
 
-    private byte[] buildSubscribe(String topic) {
+    /** Send SUBSCRIBE and wait for matching SUBACK.
+        If queued PUBLISH packets arrive first (CleanSession=0 resume),
+        process them before continuing to wait for SUBACK. */
+    private boolean subscribeTopic(InputStream in, OutputStream out,
+                                   String topic, int packetId) throws Exception {
+        out.write(buildSubscribe(topic, packetId));
+        out.flush();
+
+        long deadline = System.currentTimeMillis() + 30_000;
+        while (System.currentTimeMillis() < deadline && running) {
+            byte[] pkt = readMqttPacket(in, 30000);
+            if (pkt == null) return false;
+
+            int pktType = (pkt[0] >> 4) & 0x0F;
+            if (pktType == 9) { // SUBACK
+                int ackId = ((pkt[2] & 0xFF) << 8) | (pkt[3] & 0xFF);
+                int rc     = pkt[4] & 0xFF;
+                boolean ok = ackId == packetId && rc <= 2;
+                if (ok) Log.i(TAG, "SUBACK OK — 已订阅 " + topic);
+                else    Log.w(TAG, "SUBACK 失败 topic=" + topic + " rc=" + rc);
+                return ok;
+            } else if (pktType == 3) { // PUBLISH (queued from previous session)
+                MqttPublish pub = parsePublish(pkt);
+                if (pub != null) {
+                    Log.i(TAG, "Q-PUB (subscribe phase) " + pub.topic + "=" + pub.payload);
+                    String dev = deviceIdFromTopic(pub.topic, "alert");
+                    if (dev == null) dev = deviceIdFromTopic(pub.topic, "status");
+                    if (dev == null) dev = deviceIdFromLegacyTopic(pub.topic);
+                    if (dev != null && DeviceRegistry.contains(this, dev))
+                        handleAlert(dev, pub.topic, pub.payload);
+                    else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
+                        String id = DeviceRegistry.normalize(pub.payload);
+                        if (DeviceRegistry.contains(this, id))
+                            sDeviceLastSeen.put(id, System.currentTimeMillis());
+                    }
+                }
+                // keep waiting for SUBACK
+            } else if (pktType == 13) { // PINGRESP — harmless
+            } else {
+                Log.v(TAG, "subscribe等待中收到 type=" + pktType + "，继续等待SUBACK");
+            }
+        }
+        return false; // timeout
+    }
+
+    private byte[] buildSubscribe(String topic, int packetId) {
         byte[] topicBytes = topic.getBytes();
         int remainingLen = 2 + 2 + topicBytes.length + 1; // pktId(2) + topicLen(2) + topic + qos(1)
         byte[] rlBytes = encodeRemainingLength(remainingLen);
@@ -344,7 +402,8 @@ public class MqttService extends Service {
         pos += rlBytes.length;
 
         // Packet Identifier
-        pkt[pos++] = 0x00; pkt[pos++] = 0x01;
+        pkt[pos++] = (byte)(packetId >> 8);
+        pkt[pos++] = (byte)(packetId & 0xFF);
 
         // Topic Filter
         pkt[pos++] = (byte)(topicBytes.length >> 8);
@@ -504,6 +563,17 @@ public class MqttService extends Service {
         return next;
     }
 
+    /** 持久化 Client ID，重连时复用同一身份，避免 CleanSession=1 下每次都是全新会话 */
+    private String getPersistentClientId() {
+        android.content.SharedPreferences prefs =
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String saved = prefs.getString(KEY_CLIENT_ID, "");
+        if (saved != null && saved.length() > 0) return saved;
+        String newId = "aihear_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        prefs.edit().putString(KEY_CLIENT_ID, newId).apply();
+        return newId;
+    }
+
     private SSLSocketFactory createTrustAllSslFactory() throws Exception {
         TrustManager[] trustAll = new TrustManager[]{
             new X509TrustManager() {
@@ -522,7 +592,8 @@ public class MqttService extends Service {
         sConnStatus = status;
         connected = (status == 2);
         // 更新前台通知文字
-        String text = status == 2 ? "🟢 MQTT 已连接" :
+        int deviceCount = DeviceRegistry.getDeviceSet(this).size();
+        String text = status == 2 ? "🟢 MQTT 已连接 · 监视 " + deviceCount + " 台" :
                       status == 1 ? "🟡 MQTT 连接中..." : "🔴 MQTT 已断开";
         Notification note = buildNotification(text, false);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NID_FOREGROUND, note);
@@ -532,26 +603,58 @@ public class MqttService extends Service {
     // 告警处理
     // ═══════════════════════════════════════════════════════════════
 
-    private void handleAlert(String payload) {
-        // 解析 class:score 格式
-        String cls = payload.trim();
+    private String deviceIdFromTopic(String topic, String channel) {
+        String[] parts = topic.split("/", -1);
+        if (parts.length != 5 || !"aihear".equals(parts[0]) || !"v1".equals(parts[1]) ||
+            !"demo".equals(parts[2]) || !channel.equals(parts[4])) return null;
+        String id = DeviceRegistry.normalize(parts[3]);
+        return id.isEmpty() ? null : id;
+    }
+
+    private String deviceIdFromLegacyTopic(String topic) {
+        String[] parts = topic.split("/", -1);
+        if (parts.length != 3 || !"aihear".equals(parts[0]) ||
+            !"alert".equals(parts[2])) return null;
+        String id = DeviceRegistry.normalize(parts[1]);
+        return id.isEmpty() ? null : id;
+    }
+
+    private void handleAlert(String deviceId, String topic, String payload) {
+        String cls = "unknown";
+        String eventId = "";
         double score = 0;
-        int colonIdx = cls.indexOf(':');
-        if (colonIdx > 0) {
-            try { score = Double.parseDouble(cls.substring(colonIdx + 1).trim()); } catch (Exception e) {}
-            cls = cls.substring(0, colonIdx).trim();
+        try {
+            if (payload.trim().startsWith("{")) {
+                JSONObject json = new JSONObject(payload);
+                cls = json.optString("class", "unknown").trim();
+                eventId = json.optString("eventId", "").trim();
+                score = json.optDouble("score", 0);
+            } else {
+                cls = payload.trim();
+                int colonIdx = cls.indexOf(':');
+                if (colonIdx > 0) {
+                    score = Double.parseDouble(cls.substring(colonIdx + 1).trim());
+                    cls = cls.substring(0, colonIdx).trim();
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "告警 payload 解析失败: " + payload);
+            return;
         }
 
         long now = System.currentTimeMillis();
+        sDeviceLastSeen.put(deviceId, now);
         sMsgCount++; // MQTT 消息接收计数
         final boolean isAlert = cls.contains("baby_cry") || cls.contains("help") || cls.contains("cry");
 
-        // ── 入库：10 分钟去重（统计用，不影响实时通知） ──
-        boolean shouldInsert = !cls.equals(lastDbClass) || (now - lastDbMs) >= 600_000;
+        // ── 入库：按设备和类别分别进行 10 分钟去重 ──
+        String dbKey = deviceId + "|" + cls;
+        long previousDbMs = lastDbByDeviceClass.containsKey(dbKey)
+            ? lastDbByDeviceClass.get(dbKey) : 0;
+        boolean shouldInsert = now - previousDbMs >= 600_000;
         if (shouldInsert) {
-            lastDbClass = cls;
-            lastDbMs    = now;
-            db.insertAlert(now, cls, score, TOPIC_ALERT);
+            lastDbByDeviceClass.put(dbKey, now);
+            db.insertAlert(now, deviceId, eventId, cls, score, topic);
         }
 
         lastAlertClass = cls;
@@ -560,6 +663,7 @@ public class MqttService extends Service {
 
         // ── 通知：10 秒冷却（实时告警不被去重吞掉） ──
         final String fCls = cls;
+        final String fDeviceId = deviceId;
         final double fScore = score;
         final long fNow = now;
 
@@ -570,15 +674,19 @@ public class MqttService extends Service {
             if (!isAlert) return;
 
             // 防抖
-            if (fNow - lastAlertMs < ALERT_COOLDOWN_MS) {
-                Log.d(TAG, "告警冷却中，跳过");
+            long previousAlertMs = lastAlertByDevice.containsKey(fDeviceId)
+                ? lastAlertByDevice.get(fDeviceId) : 0;
+            if (fNow - previousAlertMs < ALERT_COOLDOWN_MS) {
+                Log.d(TAG, fDeviceId + " 告警冷却中，跳过");
                 return;
             }
-            lastAlertMs = fNow;
+            lastAlertByDevice.put(fDeviceId, fNow);
 
             // Android 通知
+            int notificationId = alertNotificationId(fDeviceId);
+            activeAlertNotifications.add(notificationId);
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
-                .notify(NID_ALERT, buildAlertNote(fCls, fScore));
+                .notify(notificationId, buildAlertNote(fDeviceId, fCls, fScore));
 
             // 震动
             if (vibrator != null) {
@@ -590,7 +698,20 @@ public class MqttService extends Service {
     /** 停止告警（通知 + 震动），但不断开 MQTT */
     void stopAlarm() {
         if (vibrator != null) vibrator.cancel();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(NID_ALERT);
+        NotificationManager nm =
+            (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        for (int id : activeAlertNotifications) nm.cancel(id);
+        activeAlertNotifications.clear();
+    }
+
+    private int alertNotificationId(String deviceId) {
+        return NID_ALERT_BASE + (deviceId.hashCode() & 0x3FFF);
+    }
+
+    static long getDeviceLastSeen(String rawDeviceId) {
+        String deviceId = DeviceRegistry.normalize(rawDeviceId);
+        Long seen = sDeviceLastSeen.get(deviceId);
+        return seen == null ? 0 : seen;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -651,8 +772,9 @@ public class MqttService extends Service {
         return b.build();
     }
 
-    private Notification buildAlertNote(String cls, double score) {
-        String text = String.format("🚼 检测到哭声！(%s, %.0f%%)", cls, score * 100);
+    private Notification buildAlertNote(String deviceId, String cls, double score) {
+        String text = String.format("🚼 %s 检测到哭声！(%s, %.0f%%)",
+            deviceId, cls, score * 100);
         return buildNotification(text, true);
     }
 

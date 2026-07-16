@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 
 public class MainActivity extends Activity {
@@ -56,6 +57,7 @@ public class MainActivity extends Activity {
         ws.setMediaPlaybackRequiresUserGesture(false); // 允许自动播放音频
 
         webView.addJavascriptInterface(bridge, "Android");
+        webView.setWebChromeClient(new WebChromeClient());
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

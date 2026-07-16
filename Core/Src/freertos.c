@@ -25,6 +25,7 @@ static void vAudioInferTask(void *pvParameters)
 {
   (void)pvParameters;
   TickType_t last_heartbeat = xTaskGetTickCount();
+  TickType_t last_status_query = 0;
   TickType_t alert_until = 0;
   uint32_t quiet_cnt = 0;
   uint8_t armed = 1;  /* 1=ARMED, 0=DISARMED */
@@ -34,6 +35,12 @@ static void vAudioInferTask(void *pvParameters)
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     IWDG1->KR = 0xAAAA;  /* feed watchdog */
+
+    /* ── periodic ESP status poll: every 5 s ── */
+    if ((xTaskGetTickCount() - last_status_query) >= pdMS_TO_TICKS(5000)) {
+      last_status_query = xTaskGetTickCount();
+      WifiIoT_QueryStatus();
+    }
 
 #if !RECORD_MODE
     Button_Poll();
@@ -93,7 +100,7 @@ static void vAudioInferTask(void *pvParameters)
         {
           char payload[32];
           snprintf(payload, sizeof(payload), "%s:%.2f", names[0], (double)margin);
-          if (WifiIoT_IsReady()) WifiIoT_Publish("aihear/alert", payload);
+          WifiIoT_Publish("aihear/alert", payload);  /* send or queue */
         }
       } else if (top == 0) {
         /* baby_cry sub-threshold: MAYBE or WEAK */
@@ -112,6 +119,7 @@ static void vAudioInferTask(void *pvParameters)
     }
 
     WifiIoT_Process();
+    WifiIoT_FlushPending();   /* retransmit queued messages on link recovery */
     Alarm_Process();
 
 #if !RECORD_MODE
@@ -139,11 +147,9 @@ static void vAudioInferTask(void *pvParameters)
 
     if ((xTaskGetTickCount() - last_heartbeat) >= pdMS_TO_TICKS(30000)) {
       last_heartbeat = xTaskGetTickCount();
-      if (WifiIoT_IsReady()) {
-        char status[48];
-        snprintf(status, sizeof(status), "uptime=%lus",
-                 (unsigned long)(xTaskGetTickCount() / 1000));
-        WifiIoT_Publish("aihear/status", status);
+      const char *devid = WifiIoT_GetDeviceId();
+      if (devid && WifiIoT_IsReady()) {
+        WifiIoT_Publish("aihear/status", devid);
       }
     }
   }

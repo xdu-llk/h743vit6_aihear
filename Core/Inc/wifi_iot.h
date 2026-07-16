@@ -15,10 +15,17 @@
 
 void     WifiIoT_Init(void);
 void     WifiIoT_Process(void);
-void     WifiIoT_Publish(const char *topic, const char *payload);
+void     WifiIoT_Publish(const char *topic, const char *payload);   /* link down → enqueue */
+void     WifiIoT_FlushPending(void);                                 /* call every loop */
 void     WifiIoT_QueryStatus(void);
 uint8_t  WifiIoT_GetWifiState(void);
 uint8_t  WifiIoT_GetMqttState(void);
 uint8_t  WifiIoT_IsReady(void);
+uint8_t  WifiIoT_StatusHealthy(void);
+uint32_t WifiIoT_GetLastPubackMs(void);
+uint32_t WifiIoT_GetLastPubackSeq(void);
+uint16_t WifiIoT_GetRxOverflow(void);
+uint8_t  WifiIoT_GetPendingCount(void);
+const char* WifiIoT_GetDeviceId(void);
 
 #endif

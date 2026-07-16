@@ -27,6 +27,25 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   background:linear-gradient(135deg,#F2A0A0,#E8888A);color:#fff;border:none;border-radius:14px;
   font-size:18px;font-weight:700;cursor:pointer}
 .bind-card .hint{font-size:12px;color:#C5B9B7;margin-top:16px;line-height:1.6}
+.device-list{margin-top:18px;display:flex;flex-direction:column;gap:8px}
+.device-row{display:flex;gap:8px;align-items:center}
+.device-choice{flex:1;padding:11px 12px;border:1px solid #F5E0E0;background:#fff;color:#555;
+  text-align:left;font-size:14px;cursor:pointer}
+.device-choice.selected{border-color:#F2A0A0;background:#FFF5F5;color:#C65F65;font-weight:700}
+.device-remove{width:40px;height:40px;border:1px solid #F2CCCC;background:#fff;color:#C44;
+  font-size:20px;cursor:pointer}
+.monitor-toolbar{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px}
+.monitor-toolbar h3{font-size:15px;color:#5A4A4B}.monitor-toolbar span{font-size:12px;color:#A99;margin-left:6px}
+.monitor-add{width:36px;height:36px;border:1px solid #E8D8D8;background:#fff;color:#B65B61;font-size:22px;cursor:pointer}
+.monitor-list{background:#fff;border-top:1px solid #EEDDDD;border-bottom:1px solid #EEDDDD;margin-bottom:16px}
+.monitor-row{width:100%;min-height:64px;border:0;border-bottom:1px solid #F1E6E6;background:#fff;padding:9px 12px;
+  display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;cursor:pointer}
+.monitor-row:last-child{border-bottom:0}.monitor-row.selected{background:#FFF6F6}.monitor-row.alerting{background:#FFF0F0}
+.monitor-state{width:9px;height:9px;border-radius:50%;background:#AAA}.monitor-state.online{background:#2EAD62}.monitor-state.alert{background:#D63838}
+.monitor-main{min-width:0}.monitor-name{font-size:14px;font-weight:700;color:#4A3B3C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.monitor-meta{font-size:11px;color:#A69697;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.monitor-count{text-align:right;font-size:11px;color:#9A8586}.monitor-count b{display:block;font-size:19px;color:#C65F65}
+.detail-title{display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px;color:#6A5859;font-size:13px;font-weight:700}
 
 /* ── 内容区（可滚动） ── */
 .content-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
@@ -127,11 +146,14 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
     <p class="sub">首次使用，请输入 ESP8266 设备 ID</p>
     <label>设备 ID</label>
     <input type="text" id="bindDeviceId" placeholder="例: aihear_AABBCC" autocomplete="off">
+    <label>房间名称</label>
+    <input type="text" id="bindDeviceAlias" placeholder="例: 婴儿房 01" maxlength="24" autocomplete="off">
     <p style="font-size:12px;color:#B8A9A5;text-align:left;margin-top:4px">
       设备通电后，串口可看到 +DEVICEID:aihear_XXXXXX
     </p>
-    <button class="btn-bind" onclick="doBind()">✅ 确认绑定</button>
-    <p class="hint">绑定后即可接收该设备推送的告警消息</p>
+    <button class="btn-bind" onclick="doBind()">添加设备</button>
+    <div id="boundDeviceList" class="device-list"></div>
+    <p class="hint">选择设备后，告警、统计与通知将按设备隔离</p>
   </div>
 </div>
 
@@ -157,8 +179,11 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
           <div class="dev" id="deviceInfo">未绑定设备</div>
         </div>
       </div>
-      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">▶ 开启</button>
+      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">▶ 开启监视</button>
     </div>
+    <div class="monitor-toolbar"><div><h3 style="display:inline">设备总览</h3><span id="monitorCount">0台</span></div><button class="monitor-add" onclick="showBind()" title="管理设备">＋</button></div>
+    <div id="deviceMonitorList" class="monitor-list"><div class="empty">尚未绑定设备</div></div>
+    <div class="detail-title"><span id="selectedDeviceTitle">设备详情</span><span>最近告警</span></div>
     <div id="alertList"><div class="empty">暂无告警记录</div></div>
     <div style="display:flex;justify-content:center;gap:12px;padding:8px 0 20px">
       <button onclick="showBind()" style="background:none;border:1px solid #DDD;color:#999;padding:6px 16px;border-radius:20px;font-size:12px;cursor:pointer">🔗 绑定设备</button>
@@ -168,6 +193,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 
   <!-- 喂养 -->
   <div id="pane-feeding" class="tab-pane">
+    <div class="detail-title"><span id="feedDeviceTitle">喂养记录</span><span></span></div>
     <div class="feed-row">
       <input type="text" id="feedNote" placeholder="备注（配方奶/母乳/量ml）">
       <button onclick="addFeeding()">记录</button>
@@ -177,6 +203,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 
   <!-- 统计 -->
   <div id="pane-stats" class="tab-pane">
+    <div class="detail-title"><span id="statsDeviceTitle">数据统计</span><span></span></div>
     <div class="stat-grid">
       <div class="stat-card"><div class="num" id="todayAlerts">0</div><div class="label">今日告警</div></div>
       <div class="stat-card"><div class="num" id="todayFeeds">0</div><div class="label">今日喂养</div></div>
@@ -193,6 +220,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   <div id="pane-ai" class="tab-pane">
     <div class="ai-card">
       <h3>🤖 DeepSeek AI 分析</h3>
+      <div class="detail-title"><span id="aiDeviceTitle">当前设备</span><span></span></div>
       <p style="font-size:13px;color:#B8A9A5;margin-bottom:10px">基于近期告警和喂养数据，分析宝宝作息规律</p>
       <div class="ai-result" id="aiResult">点击下方按钮开始分析</div>
       <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">🔍 开始AI分析</button>
@@ -214,29 +242,97 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 </div>
 
 <script>
-var deviceId='',started=false,mqttStatus=0,overlayActive=false;
+var devices=[],deviceSummaries=[],deviceId='',started=false,mqttStatus=0,overlayActive=false;
 var beepTimer=null,audioOsc=null,audioGain=null,audioCtx=null;
 
 // ═══════════════ 设备绑定 ═══════════════
 function initBind(){
-  deviceId=localStorage.getItem('device_id')||'';
-  if(deviceId){document.getElementById('bindPage').classList.add('hidden');document.getElementById('deviceInfo').textContent='设备: '+deviceId;}
+  var old=normalizeDeviceId(localStorage.getItem('device_id')||'');
+  if(typeof Android!=='undefined'){
+    if(old){try{Android.addBoundDevice(old);}catch(e){}}
+    try{devices=JSON.parse(Android.getBoundDevices()||'[]');}catch(e){devices=[];}
+  }else{
+    try{devices=JSON.parse(localStorage.getItem('bound_devices')||'[]');}catch(e){devices=[];}
+    if(old&&devices.indexOf(old)<0)devices.push(old);
+  }
+  devices=devices.map(normalizeDeviceId).filter(function(v,i,a){return v&&a.indexOf(v)===i;}).sort();
+  deviceId=normalizeDeviceId(localStorage.getItem('selected_device')||'');
+  if(devices.indexOf(deviceId)<0)deviceId=devices[0]||'';
+  if(deviceId)localStorage.setItem('selected_device',deviceId);
+  renderDeviceList();updateDeviceInfo();
+  if(deviceId)document.getElementById('bindPage').classList.add('hidden');
 }
-function showBind(){document.getElementById('bindDeviceId').value=deviceId;document.getElementById('bindPage').classList.remove('hidden');}
+function normalizeDeviceId(raw){
+  var id=(raw||'').trim().toLowerCase();
+  if(/^[0-9a-f]{6}$/.test(id))id='aihear_'+id;
+  return /^aihear_[0-9a-f]{6}$/.test(id)?id:'';
+}
+function persistFallbackDevices(){localStorage.setItem('bound_devices',JSON.stringify(devices));}
+function loadDeviceSummaries(){
+  if(typeof Android!=='undefined'){
+    try{deviceSummaries=JSON.parse(Android.getDeviceSummaries()||'[]');}catch(e){deviceSummaries=[];}
+  }else deviceSummaries=devices.map(function(id){return{deviceId:id,alias:id,lastSeen:0,todayAlerts:0};});
+  return deviceSummaries;
+}
+function deviceAlias(id){
+  for(var i=0;i<deviceSummaries.length;i++)if(deviceSummaries[i].deviceId===id)return deviceSummaries[i].alias||id;
+  return id;
+}
+function renderDeviceList(){
+  loadDeviceSummaries();
+  var box=document.getElementById('boundDeviceList'),h='';
+  devices.forEach(function(id){
+    h+='<div class="device-row"><button class="device-choice'+(id===deviceId?' selected':'')+'" onclick="selectDevice(\''+id+'\')">'+
+      esc(deviceAlias(id))+' · '+esc(id)+(id===deviceId?' · 当前':'')+'</button><button class="device-remove" aria-label="移除设备" onclick="removeDevice(\''+id+'\')">×</button></div>';
+  });
+  box.innerHTML=h||'<div class="empty" style="padding:10px 0">尚未绑定设备</div>';
+}
+function updateDeviceInfo(){
+  var dn=deviceId?deviceAlias(deviceId)+' · '+deviceId:'未绑定设备';
+  document.getElementById('deviceInfo').textContent=dn;
+  document.getElementById('selectedDeviceTitle').textContent=deviceId?'📋 '+deviceAlias(deviceId):'设备详情';
+  document.getElementById('feedDeviceTitle').textContent=deviceId?'🍼 '+deviceAlias(deviceId):'喂养记录';
+  document.getElementById('statsDeviceTitle').textContent=deviceId?'📊 '+deviceAlias(deviceId):'数据统计';
+  document.getElementById('aiDeviceTitle').textContent=deviceId?'🤖 '+deviceAlias(deviceId):'当前设备';
+}
+function showBind(){document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';renderDeviceList();document.getElementById('bindPage').classList.remove('hidden');}
+function selectDevice(id){
+  id=normalizeDeviceId(id);if(!id||devices.indexOf(id)<0)return;
+  deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
+  renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
+  loadAlerts();loadStats();renderMonitorList();
+  document.getElementById('aiResult').textContent='点击下方按钮开始分析';
+}
 function doBind(){
-  var id=document.getElementById('bindDeviceId').value.trim();
-  if(!id){alert('请输入设备 ID');return;}
-  deviceId=id;localStorage.setItem('device_id',deviceId);
-  document.getElementById('bindPage').classList.add('hidden');
-  document.getElementById('deviceInfo').textContent='设备: '+deviceId;
-  if(started&&typeof Android!=='undefined'){Android.stopService();setTimeout(function(){Android.startService();},600);}
+  var id=normalizeDeviceId(document.getElementById('bindDeviceId').value);
+  var alias=document.getElementById('bindDeviceAlias').value.trim();
+  if(!id){alert('设备 ID 格式应为 aihear_ 加 6 位十六进制字符');return;}
+  if(typeof Android!=='undefined'&&!Android.addBoundDevice(id)){alert('绑定失败');return;}
+  if(typeof Android!=='undefined'&&alias)Android.setDeviceAlias(id,alias);
+  if(devices.indexOf(id)<0)devices.push(id);devices.sort();persistFallbackDevices();
+  document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';selectDevice(id);
+}
+function removeDevice(id){
+  if(!confirm('移除设备 '+id+'？历史记录不会删除。'))return;
+  if(typeof Android!=='undefined'){
+    if(!Android.removeBoundDevice(id)){showError('设备移除失败');return;}
+    try{devices=JSON.parse(Android.getBoundDevices()||'[]');}catch(e){showError('设备列表刷新失败');return;}
+  }else devices=devices.filter(function(v){return v!==id;});
+  devices=devices.map(normalizeDeviceId).filter(Boolean).sort();persistFallbackDevices();
+  if(deviceId===id){
+    deviceId=devices[0]||'';
+    if(deviceId){localStorage.setItem('selected_device',deviceId);localStorage.setItem('device_id',deviceId);}
+    else{localStorage.removeItem('selected_device');localStorage.removeItem('device_id');}
+  }
+  renderDeviceList();updateDeviceInfo();renderMonitorList();
+  if(!deviceId)document.getElementById('bindPage').classList.remove('hidden');
 }
 
 // ═══════════════ 服务控制 ═══════════════
 function toggleService(){started?stopService():startService();}
 function startSvc(){startService();}
 function startService(){
-  if(!deviceId){showBind();return;}
+  if(!devices.length||!deviceId){showBind();return;}
   hideError();
   if(typeof Android!=='undefined'){
     try{Android.startService();}catch(e){showError('启动失败: '+e);return;}
@@ -281,31 +377,52 @@ function stopBeep(){
 function loadAlerts(){
   var list=document.getElementById('alertList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(Android.getAlerts()||'[]');
+  var data=JSON.parse(Android.getAlertsForDevice(deviceId)||'[]');
   if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
     var a=data[i],d=new Date(a.time),cry=/cry|help/i.test(a.cls||'');
     h+='<div class="alert-item'+(cry?' cry-card':'')+'"><span class="icon">'+(cry?'🚼':'🔔')+'</span>'+
       '<div class="info"><div class="cls'+(cry?' cry':'')+'">'+esc(a.cls)+'</div>'+
-      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+Math.round((a.score||0)*100)+'%</div></div>'+
+      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+esc(a.deviceId||deviceId)+' · '+Math.round((a.score||0)*100)+'%</div></div>'+
       '<button class="del" onclick="delAlert('+a.id+')">删除</button></div>';
   }
   list.innerHTML=h;
 }
 function delAlert(id){if(typeof Android!=='undefined')Android.deleteAlert(id);loadAlerts();}
-function clearAlerts(){if(!confirm('确定清空所有告警？'))return;if(typeof Android!=='undefined')Android.clearAlerts();loadAlerts();}
+function clearAlerts(){if(!confirm('确定清空 '+deviceId+' 的告警？'))return;if(typeof Android!=='undefined')Android.clearAlertsForDevice(deviceId);loadAlerts();}
+
+function formatAgo(ts){
+  if(!ts)return'未上报';var sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
+  if(sec<60)return sec+'秒前';if(sec<3600)return Math.floor(sec/60)+'分钟前';return Math.floor(sec/3600)+'小时前';
+}
+function renderMonitorList(){
+  var list=document.getElementById('deviceMonitorList'),data=loadDeviceSummaries();
+  data.sort(function(a,b){
+    var aa=a.lastAlert&&Date.now()-a.lastAlert.time<600000?1:0,ba=b.lastAlert&&Date.now()-b.lastAlert.time<600000?1:0;
+    if(aa!==ba)return ba-aa;return(b.lastSeen||0)-(a.lastSeen||0);
+  });
+  document.getElementById('monitorCount').textContent=data.length+'台';
+  if(!data.length){list.innerHTML='<div class="empty" style="padding:18px 0">尚未绑定设备</div>';return;}
+  var h='';data.forEach(function(d){
+    var online=d.lastSeen&&Date.now()-d.lastSeen<90000,recent=d.lastAlert&&Date.now()-d.lastAlert.time<600000;
+    var state=recent?'alert':online?'online':'',status=recent?'告警 '+esc(d.lastAlert.cls||'异常'):online?'在线 · '+formatAgo(d.lastSeen):formatAgo(d.lastSeen);
+    h+='<button class="monitor-row'+(d.deviceId===deviceId?' selected':'')+(recent?' alerting':'')+'" onclick="selectDevice(\''+d.deviceId+'\')">'+
+      '<span class="monitor-state '+state+'"></span><span class="monitor-main"><span class="monitor-name">'+esc(d.alias||d.deviceId)+'</span><span class="monitor-meta">'+esc(d.deviceId)+' · '+status+'</span></span>'+
+      '<span class="monitor-count"><b>'+Number(d.todayAlerts||0)+'</b>今日</span></button>';
+  });list.innerHTML=h;
+}
 
 // ═══════════════ 喂养 ═══════════════
 function addFeeding(){
   var n=document.getElementById('feedNote').value.trim();
-  if(typeof Android!=='undefined')Android.addFeeding(n);
+  if(typeof Android!=='undefined')Android.addFeeding(deviceId,n);
   document.getElementById('feedNote').value='';loadFeedings();
 }
 function loadFeedings(){
   var list=document.getElementById('feedList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(Android.getFeedings()||'[]');
+  var data=JSON.parse(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()||'[]');
   if(!data.length){list.innerHTML='<div class="empty">🍼 暂无喂养记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
@@ -321,9 +438,10 @@ function delFeeding(id){if(typeof Android!=='undefined')Android.deleteFeeding(id
 // ═══════════════ 统计 ═══════════════
 function loadStats(){
   if(typeof Android==='undefined')return;
-  document.getElementById('todayAlerts').textContent=Android.getTodayAlerts();
-  document.getElementById('todayFeeds').textContent=Android.getTodayFeedings();
-  var alerts=JSON.parse(Android.getAlerts()||'[]'),feeds=JSON.parse(Android.getFeedings()||'[]');
+  document.getElementById('todayAlerts').textContent=Android.getTodayAlertsForDevice(deviceId);
+  document.getElementById('todayFeeds').textContent=deviceId?Android.getTodayFeedingsForDevice(deviceId):Android.getTodayFeedings();
+  var alerts=JSON.parse(Android.getAlertsForDevice(deviceId)||'[]');
+  var feeds=JSON.parse(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()||'[]');
   var wa=0,wf=0,weekAgo=Date.now()-7*86400000,days=[],dayMap={};
   for(var i=0;i<7;i++){var k=new Date(Date.now()-(6-i)*86400000).toLocaleDateString('zh-CN');dayMap[k]=0;days.push(k);}
   for(var i=0;i<alerts.length;i++){if(alerts[i].time>weekAgo)wa++;var dk=new Date(alerts[i].time).toLocaleDateString('zh-CN');if(dayMap[dk]!==undefined)dayMap[dk]++;}
@@ -342,9 +460,14 @@ function pollMqtt(){
   var dot=document.getElementById('mqttDot'),label=document.getElementById('mqttLabel');
   dot.className='mqtt-dot '+(s===2?'on':s===1?'mid':'off');
   var mc=Android.getMsgCount();
-  if(s===2){label.textContent='🟢 MQTT 已连接 · 收到'+mc+'条';label.className='stxt ok';}
+  if(s===2){label.textContent='🟢 MQTT 已连接 · 监视'+devices.length+'台 · 收到'+mc+'条';label.className='stxt ok';}
   else if(s===1){label.textContent='🟡 MQTT 连接中...';label.className='stxt err';}
   else{label.textContent='🔴 MQTT 未连接';label.className='stxt err';}
+  if(deviceId){
+    var seen=Android.getDeviceLastSeen(deviceId),suffix=seen&&Date.now()-seen<90000?' · 在线':' · 未上报';
+    document.getElementById('deviceInfo').textContent=deviceAlias(deviceId)+' · '+deviceId+suffix;
+  }
+  renderMonitorList();
 }
 
 // ═══════════════ AI ═══════════════
@@ -353,12 +476,13 @@ function runAiAnalysis(){
   var apiKey=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value.trim();
   if(!apiKey){alert('请先填入 DeepSeek API Key');return;}
   var btn=document.getElementById('btnAi');btn.textContent='⏳ 分析中...';btn.disabled=true;
-  var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlerts():null)||'[]');
-  var feeds=JSON.parse((typeof Android!=='undefined'?Android.getFeedings():null)||'[]');
+  var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlertsForDevice(deviceId):null)||'[]');
+  var feeds=JSON.parse((typeof Android!=='undefined'?(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()):null)||'[]');
   var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,at=[];
   for(var i=0;i<alerts.length;i++){if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));}
   for(var i=0;i<feeds.length;i++){if(feeds[i].time>=ds)tf++;}
-  var prompt='你是婴儿护理专家。数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养\n\n请分析哭声规律、喂养间隔建议、综合护理建议。限300字。';
+  var devName=deviceId?deviceAlias(deviceId):'全部设备';
+  var prompt='你是婴儿护理专家。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养\n\n请分析哭声规律、喂养间隔建议、综合护理建议。限300字。';
   fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
     body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
@@ -381,10 +505,10 @@ function switchTab(name){
 // ═══════════════ UI ═══════════════
 function updateUI(){
   var btn=document.getElementById('btnToggle');
-  if(started){btn.textContent='⏹ 停止';btn.style.background='#A8D8CA';}
-  else{btn.textContent='▶ 开启';btn.style.background='#F2A0A0';}
+  if(started){btn.textContent='⏹ 停止监视';btn.style.background='#A8D8CA';}
+  else{btn.textContent='▶ 开启监视';btn.style.background='#F2A0A0';}
 }
-function refresh(){updateUI();loadStats();}
+function refresh(){updateUI();loadStats();renderMonitorList();}
 function esc(s){var d=document.createElement('div');d.textContent=(s||'');return d.innerHTML;}
 
 // ═══════════════ 轮询 ═══════════════
@@ -396,7 +520,7 @@ setInterval(function(){pollMqtt();if(started)loadStats();if(document.getElementB
   var sk=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value;
   document.getElementById('apiKey').value=sk;
   if(!localStorage.getItem('ds_api_key'))localStorage.setItem('ds_api_key',sk);
-  updateUI();pollMqtt();loadStats();
+  updateUI();pollMqtt();loadStats();renderMonitorList();
 })();
 </script>
 </body>

@@ -1,5 +1,5 @@
 /*
- * AI Hear Bridge v3 — WiFiManager: ESP creates AP, phone connects & configures
+ * AI Hear Bridge v4 + QoS1 — WiFiManager + device‑level MQTT with reliable delivery
  */
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -18,10 +18,12 @@ static ESP8266WebServer server(80);
 static char          rx_buf[256];
 static uint8_t       rx_idx = 0;
 static char ssid[33] = "", pass[33] = "";
-static char mqtt_client_id[32], alert_topic[48];
+static char mqtt_client_id[32], alert_topic[64], status_topic[64];
 static String last_alert = "";  /* HTTP alert state */
 static uint32_t last_alert_time = 0;
 static uint32_t pub_seq = 0, last_mqtt = 0, last_status = 0;
+static uint32_t boot_id = 0;
+static uint16_t qos1_pkt_id = 0;   /* rolling packet-id for QoS-1 publishes */
 
 /* ---- EEPROM ---- */
 static void save_wifi() {
@@ -61,7 +63,8 @@ x.send()}
 static void handleRoot() { server.send(200,"text/html",FPSTR(PAGE)); }
 static void handleAlert() {
   char buf[128];
-  snprintf(buf,sizeof(buf),"{\"alert\":\"%s\",\"time\":%lu}",last_alert.c_str(),last_alert_time);
+  snprintf(buf,sizeof(buf),"{\"alert\":\"%s\",\"time\":%lu}",
+           last_alert.c_str(),(unsigned long)last_alert_time);
   server.send(200,"application/json",buf);
 }
 static void handleClear() { last_alert=""; last_alert_time=0; server.send(200,"text/plain","OK"); }
@@ -73,24 +76,116 @@ static void handleSave() {
   } else server.send(400,"text/plain","ERR");
 }
 
-/* ---- UART ---- */
+/* ── QoS‑1 publish (bypasses PubSubClient which only does QoS‑0) ── */
+static bool publish_qos1(const char *topic, const char *payload) {
+  if (!mqtt.connected()) return false;
+
+  uint8_t  pkt[512];
+  uint16_t pos       = 0;
+  uint16_t topic_len = strlen(topic);
+  uint16_t payl_len  = strlen(payload);
+
+  /* fixed header: PUBLISH | QoS‑1 = 0x32 */
+  pkt[pos++] = 0x32;
+
+  /* remaining length: topic‑len(2) + topic + packet‑id(2) + payload */
+  uint16_t rl = 2 + topic_len + 2 + payl_len;
+  do {
+    uint8_t d = rl % 128; rl /= 128;
+    if (rl > 0) d |= 0x80;
+    pkt[pos++] = d;
+  } while (rl > 0);
+
+  /* topic */
+  pkt[pos++] = (topic_len >> 8) & 0xFF;
+  pkt[pos++] = topic_len & 0xFF;
+  memcpy(pkt + pos, topic, topic_len); pos += topic_len;
+
+  /* packet identifier (rolling, non‑zero) */
+  qos1_pkt_id++;
+  if (qos1_pkt_id == 0) qos1_pkt_id = 1;
+  uint16_t sent_id = qos1_pkt_id;
+  pkt[pos++] = (sent_id >> 8) & 0xFF;
+  pkt[pos++] = sent_id & 0xFF;
+
+  /* payload */
+  memcpy(pkt + pos, payload, payl_len); pos += payl_len;
+
+  wifi_client.write(pkt, pos);
+  wifi_client.flush();
+
+  /* wait for PUBACK (2 s timeout) */
+  uint32_t start = millis();
+  while (millis() - start < 2000) {
+    if (wifi_client.available() >= 4) {
+      uint8_t buf[4];
+      wifi_client.read(buf, 4);
+      if ((buf[0] & 0xF0) == 0x40) {                /* MQTTPUBACK */
+        uint16_t ack_id = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        if (ack_id == sent_id) return true;
+      }
+      /* not our PUBACK — byte order may be off; discard and keep waiting */
+    }
+    delay(10);
+  }
+  return false;  /* timeout — broker didn't ack */
+}
+
+/* ── QoS‑1 publish with one retry ── */
+static bool publish_reliable(const char *topic, const char *payload) {
+  if (publish_qos1(topic, payload)) return true;
+  delay(200);
+  return publish_qos1(topic, payload);  /* one retry */
+}
+
+/* ── UART ── */
 static void parse_command(const char *cmd) {
   if(strncmp(cmd,"+PUB:",5)==0){
     const char *s=cmd+5,*sep=strchr(s,':');
     if(!sep||sep==s){Serial.println("+ERR:PARSE");return;}
     char t[64];int l=sep-s;if(l>63)l=63;memcpy(t,s,l);t[l]=0;
     if(!mqtt.connected()){Serial.println("+ERR:MQTT_DOWN");return;}
-    if(!mqtt.publish(t,sep+1,false)){Serial.println("+ERR:PUB_FAIL");return;}
-    if(strcmp(t,"aihear/alert")==0){ mqtt.publish(alert_topic,sep+1,false); if(strstr(sep+1,"baby_cry")){last_alert=sep+1;last_alert_time=millis();} }
-    pub_seq++; Serial.printf("+PUBACK:%u\r\n",pub_seq);
+    bool ok=true;
+    pub_seq++;
+    if(strcmp(t,"aihear/alert")==0){
+      char cls[32]="unknown"; float score=0.0f;
+      const char *colon=strchr(sep+1,':');
+      if(colon){
+        size_t n=(size_t)(colon-(sep+1)); if(n>sizeof(cls)-1)n=sizeof(cls)-1;
+        memcpy(cls,sep+1,n);cls[n]=0;score=strtof(colon+1,nullptr);
+      }
+      char json[192];
+      snprintf(json,sizeof(json),
+        "{\"eventId\":\"%s-%08lx-%lu\",\"class\":\"%s\",\"score\":%.3f,\"uptimeMs\":%lu}",
+        mqtt_client_id,(unsigned long)boot_id,(unsigned long)pub_seq,cls,
+        (double)score,(unsigned long)millis());
+      ok=publish_reliable(alert_topic,json);
+      ok=publish_reliable(t,sep+1)&&ok;  /* legacy topic for old App compat */
+      if(strstr(sep+1,"baby_cry")||strstr(sep+1,"adult_cry")){last_alert=sep+1;last_alert_time=millis();}
+    } else ok=publish_reliable(t,sep+1);
+    if(!ok){Serial.println("+ERR:PUB_FAIL");return;}
+    Serial.printf("+PUBACK:%lu\r\n",(unsigned long)pub_seq);
   }else if(strcmp(cmd,"+STATUS")==0)
     Serial.printf("+STATUS:%d:%d\r\n",(WiFi.status()==WL_CONNECTED)?2:0,mqtt.connected()?2:0);
   else Serial.println("+ERR:UNKNOWN");
 }
+
+static void publish_status() {
+  char json[160];
+  snprintf(json,sizeof(json),
+    "{\"deviceId\":\"%s\",\"online\":true,\"uptimeMs\":%lu,\"seq\":%lu,\"fw\":\"bridge-v4\"}",
+    mqtt_client_id,(unsigned long)millis(),(unsigned long)pub_seq);
+  mqtt.publish(status_topic,json,false);
+  mqtt.publish("aihear/status",mqtt_client_id,false);  /* legacy */
+}
+
 static void mqtt_reconnect() {
   mqtt.setServer("broker-cn.emqx.io",1883);
   mqtt.connect(mqtt_client_id);
-  if(mqtt.connected()) mqtt.subscribe("aihear/cmd");
+  if(mqtt.connected()) {
+    mqtt.subscribe("aihear/cmd");
+    publish_status();
+  }
 }
 
 /* ---- setup ---- */
@@ -99,8 +194,10 @@ void setup() {
   delay(2000);
   EEPROM.begin(128);
   uint8_t mac[6]; WiFi.macAddress(mac);
-  snprintf(mqtt_client_id,sizeof(mqtt_client_id),"aihear_%02X%02X%02X",mac[3],mac[4],mac[5]);
-  snprintf(alert_topic,sizeof(alert_topic),"aihear/%02X%02X%02X/alert",mac[3],mac[4],mac[5]);
+  snprintf(mqtt_client_id,sizeof(mqtt_client_id),"aihear_%02x%02x%02x",mac[3],mac[4],mac[5]);
+  snprintf(alert_topic,sizeof(alert_topic),"aihear/v1/demo/%s/alert",mqtt_client_id);
+  snprintf(status_topic,sizeof(status_topic),"aihear/v1/demo/%s/status",mqtt_client_id);
+  boot_id=ESP.getChipId()^micros()^ESP.getCycleCount();
   Serial.printf("+DEVICEID:%s\r\n",mqtt_client_id);
 
   if(load_wifi()){
@@ -166,6 +263,6 @@ void loop() {
   if(now-last_status>60000){
     last_status=now;
     Serial.printf("+STATUS:%d:%d\r\n",(WiFi.status()==WL_CONNECTED)?2:0,mqtt.connected()?2:0);
-    mqtt.publish("aihear/status",mqtt_client_id,false);
+    publish_status();
   }
 }
