@@ -207,14 +207,6 @@ SECTIONS
     . = ALIGN(4);
   } >RAM
 
-  /* KWS tensor arena — D2 SRAM, after ring buffer (0x30010000) + DMA buffer */
-  .kws_arena 0x30021000 (NOLOAD) :
-  {
-    . = ALIGN(4);
-    *(.kws_arena)
-    . = ALIGN(4);
-  } >RAM_D2
-
   /* Audio ring buffer — AXI SRAM, 64KB for 1s@16kHz */
   .ring_buf (NOLOAD) :
   {

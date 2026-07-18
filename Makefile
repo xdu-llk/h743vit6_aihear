@@ -31,7 +31,7 @@ Drivers/CMSIS/DSP/Source/TransformFunctions/arm_bitreversal2.c \
 Drivers/CMSIS/DSP/Source/CommonTables/arm_const_structs.c Drivers/CMSIS/DSP/Source/CommonTables/arm_common_tables.c
 
 CPP_SOURCES = \
-Core/Src/tflm_runner.cc Core/Src/dscnn_model.cc Core/Src/kws_model.cc Core/Src/audio_preproc.cc \
+Core/Src/tflm_runner.cc Core/Src/dscnn_model.cc Core/Src/audio_preproc.cc \
 third_party/tflite-micro/tensorflow/lite/micro/micro_op_resolver.cc third_party/tflite-micro/tensorflow/lite/micro/micro_interpreter.cc \
 third_party/tflite-micro/tensorflow/lite/micro/micro_allocator.cc third_party/tflite-micro/tensorflow/lite/micro/memory_helpers.cc \
 third_party/tflite-micro/tensorflow/lite/micro/micro_interpreter_context.cc third_party/tflite-micro/tensorflow/lite/micro/micro_interpreter_graph.cc \
