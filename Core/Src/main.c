@@ -105,12 +105,12 @@ int main(void)
   /* AXI SRAM cold-boot: clear all 512KB for ECC parity init */
   memset((void *)0x24000000, 0, 512 * 1024);
 
-  /* Boot watchdog: auto-retry if cold boot hangs (~1.5s) */
+  /* Boot watchdog: auto-retry if cold boot hangs (~4s, dual-model init) */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
   IWDG1->KR = 0x5555;
   IWDG1->PR = 5;
-  IWDG1->RLR = 375;
+  IWDG1->RLR = 999;
   IWDG1->KR = 0xAAAA;
   IWDG1->KR = 0xCCCC;
   /* USER CODE END SysInit */
@@ -134,11 +134,13 @@ int main(void)
   printf("[PREPROC] Log-mel spectrogram ready (%dx%d)\n",
          PREPROC_NUM_MELS, PREPROC_NUM_FRAMES);
 
-  printf("[TFLM] Initializing...\n");
-  TFLM_Init();
-  printf("[TFLM] Ready.\n");
+  printf("[TFLM] Initializing Baby-Cry...\n");
+  TFLM_BabyCry_Init();
+  printf("[TFLM] Initializing KWS...\n");
+  TFLM_KWS_Init();
+  printf("[TFLM] Both models ready.\n");
 
-  /* DS-CNN model ready — input 40x32, output 2-class (baby_cry/other) */
+  /* Dual-model: KWS (help-call) + DS-CNN (baby_cry), 40x96 input */
 
   /* Drain UART4 RX FIFO — ESP8266 may have sent junk during STM32 reset */
   HAL_UART_DeInit(&huart4);

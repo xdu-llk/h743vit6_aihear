@@ -1,122 +1,111 @@
 #include "tflm_runner.h"
 
-/* Model data from training/dscnn_int8.tflite → model_data.cc */
 extern const unsigned char g_model[];
 extern const int g_model_len;
+extern const unsigned char g_kws_model[];
+extern const int g_kws_model_len;
 
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-
 #include "main.h"
 #include <cmath>
 #include <cstring>
 
 namespace {
 
-/* DS-CNN 2-class: float32 I/O, INT8 internal. Conv2D + DWConv2D + FC + Softmax + Pad + Quantize ops */
-using DscnnOpResolver = tflite::MicroMutableOpResolver<8>;
+using SharedResolver = tflite::MicroMutableOpResolver<8>;
 
-constexpr int kTensorArenaSize = 512 * 1024;
-
-__attribute__((section(".tensor_arena"), aligned(16)))
-uint8_t tensor_arena[kTensorArenaSize];
-
-tflite::MicroInterpreter* interpreter = nullptr;
-
-TfLiteStatus RegisterOps(DscnnOpResolver& op_resolver) {
-  TF_LITE_ENSURE_STATUS(op_resolver.AddConv2D());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddDepthwiseConv2D());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddMean());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddFullyConnected());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddSoftmax());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddReshape());
-  TF_LITE_ENSURE_STATUS(op_resolver.AddPad());
+TfLiteStatus RegisterOps(SharedResolver& r) {
+  TF_LITE_ENSURE_STATUS(r.AddConv2D());
+  TF_LITE_ENSURE_STATUS(r.AddDepthwiseConv2D());
+  TF_LITE_ENSURE_STATUS(r.AddMean());
+  TF_LITE_ENSURE_STATUS(r.AddFullyConnected());
+  TF_LITE_ENSURE_STATUS(r.AddSoftmax());
+  TF_LITE_ENSURE_STATUS(r.AddReshape());
+  TF_LITE_ENSURE_STATUS(r.AddPad());
   return kTfLiteOk;
 }
 
-}  /* namespace */
+// Baby-cry: AXI SRAM 512KB
+constexpr int kBCArenaSize = 512 * 1024;
+__attribute__((section(".tensor_arena"), aligned(16)))
+uint8_t bc_arena[kBCArenaSize];
+tflite::MicroInterpreter* bc_interp = nullptr;
 
-void TFLM_Init(void)
-{
-  /* Zero tensor arena to prevent SRAM ECC errors on cold boot.
-     .tensor_arena is (NOLOAD) in linker — not zeroed by startup. */
-  memset(tensor_arena, 0, kTensorArenaSize);
+// KWS: D2 SRAM 80KB (after ring + DMA buffers)
+constexpr int kKwsArenaSize = 80 * 1024;
+__attribute__((section(".kws_arena"), aligned(16)))
+uint8_t kws_arena[kKwsArenaSize];
+tflite::MicroInterpreter* kws_interp = nullptr;
 
-  /* tflite::InitializeTarget() skipped — H7 HAL already handles cache/MPU init */
-  MicroPrintf("[TFLM] 1/3 Target ok\n");
+}  // namespace
 
-  const tflite::Model* model = ::tflite::GetModel(g_model);
-  if (model->version() != TFLITE_SCHEMA_VERSION) {
-    MicroPrintf("[TFLM] Model version mismatch!\n");
-    return;
-  }
-  MicroPrintf("[TFLM] 2/3 Model ok (%d bytes)\n", g_model_len);
-
-  static DscnnOpResolver op_resolver;
-  if (RegisterOps(op_resolver) != kTfLiteOk) {
-    MicroPrintf("[TFLM] Failed to register ops!\n");
-    return;
-  }
-  MicroPrintf("[TFLM] 3/3 Ops ok\n");
-
-  /* Flush SRAM writes before TFLM touches arena */
-  __DSB();
-  __ISB();
-
-  static tflite::MicroInterpreter static_interpreter(
-      model, op_resolver, tensor_arena, kTensorArenaSize);
-  interpreter = &static_interpreter;
-
-  if (interpreter->AllocateTensors() != kTfLiteOk) {
-    MicroPrintf("[TFLM] Failed to allocate tensors!\n");
-    return;
-  }
-  MicroPrintf("[TFLM] Arena: %d bytes\n", kTensorArenaSize);
+// ── Baby-Cry ──
+void TFLM_BabyCry_Init(void) {
+  memset(bc_arena, 0, kBCArenaSize);
+  const tflite::Model* m = ::tflite::GetModel(g_model);
+  static SharedResolver r;
+  RegisterOps(r);
+  __DSB(); __ISB();
+  static tflite::MicroInterpreter si(m, r, bc_arena, kBCArenaSize);
+  bc_interp = &si;
+  bc_interp->AllocateTensors();
 }
 
-bool TFLM_Infer(const float* input, float* output)
-{
-  if (!interpreter) return false;
-
-  TfLiteTensor* in_tensor = interpreter->input(0);
-  TfLiteTensor* out_tensor = interpreter->output(0);
-
-  /* Quantize float features → int8 */
-  float input_scale = in_tensor->params.scale;
-  int32_t input_zp = in_tensor->params.zero_point;
+bool TFLM_BabyCry_Infer(const float* input, float* output) {
+  if (!bc_interp) return false;
+  TfLiteTensor* in = bc_interp->input(0);
+  TfLiteTensor* out = bc_interp->output(0);
+  float is = in->params.scale;
+  int32_t iz = in->params.zero_point;
   for (int i = 0; i < TFLM_INPUT_DIM; i++) {
-    int32_t q = static_cast<int32_t>(roundf(input[i] / input_scale)) + input_zp;
-    in_tensor->data.int8[i] = static_cast<int8_t>(
-        q < -128 ? -128 : (q > 127 ? 127 : q));
+    int32_t q = (int32_t)roundf(input[i] / is) + iz;
+    in->data.int8[i] = (int8_t)(q < -128 ? -128 : (q > 127 ? 127 : q));
   }
-
-  uint32_t t0 = HAL_GetTick();
-  if (interpreter->Invoke() != kTfLiteOk) return false;
-  uint32_t elapsed = HAL_GetTick() - t0;
-
-  /* Dequantize int8 output → float */
-  float output_scale = out_tensor->params.scale;
-  int32_t output_zp = out_tensor->params.zero_point;
-  for (int i = 0; i < TFLM_NUM_CLASSES; i++) {
-    output[i] = (static_cast<int32_t>(out_tensor->data.int8[i]) - output_zp) * output_scale;
-  }
-
-  static int infer_cnt = 0;
-  if (++infer_cnt % 10 == 1) {
-    MicroPrintf("[TFLM] infer %lums", elapsed);
-  }
-
+  if (bc_interp->Invoke() != kTfLiteOk) return false;
+  float os = out->params.scale;
+  int32_t oz = out->params.zero_point;
+  for (int i = 0; i < TFLM_BC_CLASSES; i++)
+    output[i] = ((int32_t)out->data.int8[i] - oz) * os;
   return true;
 }
 
-int TFLM_GetTopClass(const float* output)
-{
-  int top = 0;
-  for (int i = 1; i < TFLM_NUM_CLASSES; i++) {
-    if (output[i] > output[top]) top = i;
+// ── KWS ──
+void TFLM_KWS_Init(void) {
+  memset(kws_arena, 0, kKwsArenaSize);
+  const tflite::Model* m = ::tflite::GetModel(g_kws_model);
+  static SharedResolver r;
+  RegisterOps(r);
+  __DSB(); __ISB();
+  static tflite::MicroInterpreter si(m, r, kws_arena, kKwsArenaSize);
+  kws_interp = &si;
+  kws_interp->AllocateTensors();
+}
+
+bool TFLM_KWS_Infer(const float* input, float* output) {
+  if (!kws_interp) return false;
+  TfLiteTensor* in = kws_interp->input(0);
+  TfLiteTensor* out = kws_interp->output(0);
+  float is = in->params.scale;
+  int32_t iz = in->params.zero_point;
+  for (int i = 0; i < TFLM_INPUT_DIM; i++) {
+    int32_t q = (int32_t)roundf(input[i] / is) + iz;
+    in->data.int8[i] = (int8_t)(q < -128 ? -128 : (q > 127 ? 127 : q));
   }
+  if (kws_interp->Invoke() != kTfLiteOk) return false;
+  float os = out->params.scale;
+  int32_t oz = out->params.zero_point;
+  for (int i = 0; i < TFLM_KWS_CLASSES; i++)
+    output[i] = ((int32_t)out->data.int8[i] - oz) * os;
+  return true;
+}
+
+int TFLM_GetTopClass(const float* output, int n_classes) {
+  int top = 0;
+  for (int i = 1; i < n_classes; i++)
+    if (output[i] > output[top]) top = i;
   return top;
 }

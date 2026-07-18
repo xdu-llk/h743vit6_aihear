@@ -1,4 +1,4 @@
-"""Re-export TFLite int8 — 2-class (baby_cry vs other), Keras path."""
+"""Re-export TFLite int8 — 3-class (baby_cry / help / other), Keras path."""
 import torch, numpy as np, tensorflow as tf
 import librosa, glob, sys
 
@@ -27,8 +27,15 @@ def keras_dscnn():
         in_ch = x.shape[-1]
         dw_w = np.transpose(state[f'{prefix}.dw.weight'].numpy(), (2,3,0,1))
         dw_w = dw_w.reshape(dw_w.shape[0], dw_w.shape[1], in_ch, 1)
-        x = tf.keras.layers.DepthwiseConv2D(3, stride, padding='same', use_bias=False,
-            depthwise_initializer=tf.keras.initializers.Constant(dw_w))(x)
+        # Keras 'same' padding differs from PyTorch for stride>1
+        # Use manual ZeroPadding2D(1) + 'valid' to match PyTorch exactly
+        if stride > 1:
+            x = tf.keras.layers.ZeroPadding2D(padding=1)(x)
+            x = tf.keras.layers.DepthwiseConv2D(3, stride, padding='valid', use_bias=False,
+                depthwise_initializer=tf.keras.initializers.Constant(dw_w))(x)
+        else:
+            x = tf.keras.layers.DepthwiseConv2D(3, stride, padding='same', use_bias=False,
+                depthwise_initializer=tf.keras.initializers.Constant(dw_w))(x)
         x = tf.keras.layers.BatchNormalization(name=f'{prefix}.bn1', **BN_ARGS)(x)
         x = tf.keras.layers.ReLU()(x)
         pw_w = np.transpose(state[f'{prefix}.pw.weight'].numpy(), (2,3,1,0))
@@ -69,7 +76,8 @@ test_file = glob.glob('data/baby_cry/*.wav')[0]
 y, _ = librosa.load(test_file, sr=SR, mono=True)
 y = y[:SR] if len(y) >= SR else np.pad(y, (0, SR - len(y)))
 mel = librosa.feature.melspectrogram(y=y, sr=SR, n_fft=N_FFT, hop_length=HOP,
-        n_mels=N_MELS, fmin=20, fmax=8000, window='hann')
+        n_mels=N_MELS, fmin=20, fmax=8000, window='hann',
+        center=False)
 lm = librosa.power_to_db(mel, ref=np.max)
 if lm.shape[1] < FRAMES: lm = np.pad(lm, ((0,0),(0,FRAMES-lm.shape[1])))
 else: lm = lm[:,:FRAMES]
@@ -86,30 +94,27 @@ print(f"Match: {np.allclose(pt_out, tf_out, atol=1e-3)}")
 # ---------- Calibration data ----------
 print("\nCalibration data...")
 calib = []
-# baby_cry
-for f in sorted(glob.glob('data/baby_cry/*.wav'))[:60]:
-    y, _ = librosa.load(f, sr=SR, mono=True)
-    if len(y) < SR: y = np.pad(y, (0, SR - len(y)))
-    else: y = y[:SR]
-    mel = librosa.feature.melspectrogram(y=y, sr=SR, n_fft=N_FFT, hop_length=HOP,
-            n_mels=N_MELS, fmin=20, fmax=8000, window='hann')
-    lm = librosa.power_to_db(mel, ref=np.max)
-    if lm.shape[1] < FRAMES: lm = np.pad(lm, ((0,0),(0,FRAMES-lm.shape[1])))
-    else: lm = lm[:,:FRAMES]
-    lm = (lm - lm.mean()) / (lm.std() + 1e-6)
-    calib.append(lm.astype(np.float32))
-# other
-for f in sorted(glob.glob('data/other/*.wav'))[:120]:
-    y, _ = librosa.load(f, sr=SR, mono=True)
-    if len(y) < SR: y = np.pad(y, (0, SR - len(y)))
-    else: y = y[:SR]
-    mel = librosa.feature.melspectrogram(y=y, sr=SR, n_fft=N_FFT, hop_length=HOP,
-            n_mels=N_MELS, fmin=20, fmax=8000, window='hann')
-    lm = librosa.power_to_db(mel, ref=np.max)
-    if lm.shape[1] < FRAMES: lm = np.pad(lm, ((0,0),(0,FRAMES-lm.shape[1])))
-    else: lm = lm[:,:FRAMES]
-    lm = (lm - lm.mean()) / (lm.std() + 1e-6)
-    calib.append(lm.astype(np.float32))
+
+def load_calib_samples(cls, count):
+    """Load first 'count' WAVs from data/{cls}/, extract Mel features, return list."""
+    samples = []
+    for f in sorted(glob.glob(f'data/{cls}/*.wav'))[:count]:
+        y, _ = librosa.load(f, sr=SR, mono=True)
+        if len(y) < SR: y = np.pad(y, (0, SR - len(y)))
+        else: y = y[:SR]
+        mel = librosa.feature.melspectrogram(y=y, sr=SR, n_fft=N_FFT, hop_length=HOP,
+                n_mels=N_MELS, fmin=20, fmax=8000, window='hann',
+                center=False)
+        lm = librosa.power_to_db(mel, ref=np.max)
+        if lm.shape[1] < FRAMES: lm = np.pad(lm, ((0,0),(0,FRAMES-lm.shape[1])))
+        else: lm = lm[:,:FRAMES]
+        lm = (lm - lm.mean()) / (lm.std() + 1e-6)
+        samples.append(lm.astype(np.float32))
+    return samples
+
+calib.extend(load_calib_samples('baby_cry', 60))
+calib.extend(load_calib_samples('distress_shout', 60))
+calib.extend(load_calib_samples('other', 120))
 print(f"  {len(calib)} samples")
 
 # ---------- TFLite int8 ----------

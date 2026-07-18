@@ -161,7 +161,7 @@ static void parse_command(const char *cmd) {
         (double)score,(unsigned long)millis());
       ok=publish_reliable(alert_topic,json);
       ok=publish_reliable(t,sep+1)&&ok;  /* legacy topic for old App compat */
-      if(strstr(sep+1,"baby_cry")||strstr(sep+1,"adult_cry")){last_alert=sep+1;last_alert_time=millis();}
+      if(strstr(sep+1,"baby_cry")||strstr(sep+1,"help")){last_alert=sep+1;last_alert_time=millis();}
     } else ok=publish_reliable(t,sep+1);
     if(!ok){Serial.println("+ERR:PUB_FAIL");return;}
     Serial.printf("+PUBACK:%lu\r\n",(unsigned long)pub_seq);

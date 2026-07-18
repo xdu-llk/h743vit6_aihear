@@ -1,4 +1,4 @@
-"""Train DS-CNN for 2-class audio classification: baby_cry vs other.
+"""Train DS-CNN for 3-class audio classification: baby_cry / help / other.
 
 Optimizations:
   - MixUp (α=0.2) — sample blending for small-dataset generalization
@@ -10,14 +10,15 @@ Optimizations:
 """
 import torch, torch.nn as nn, torch.optim as optim
 import torch.nn.functional as F
-import numpy as np, librosa, os, glob, random
+import numpy as np, librosa, os, glob, random, re
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from sklearn.model_selection import train_test_split
+from collections import defaultdict
 from tqdm import tqdm
 
 # ========== Config (matching STM32 preproc exactly) ==========
 SR, N_MELS, FRAMES, N_FFT, HOP = 16000, 40, 96, 512, 160
-CLASSES   = ['baby_cry', 'other']
+CLASSES   = ['baby_cry', 'help', 'other']
 BATCH, EP = 64, 100
 DATA_ROOT = 'feature_cache'
 DEVICE    = torch.device('cuda')
@@ -117,7 +118,8 @@ class AudioDataset(Dataset):
 
         mel = librosa.feature.melspectrogram(
             y=y, sr=SR, n_fft=N_FFT, hop_length=HOP,
-            n_mels=N_MELS, fmin=20, fmax=8000, window='hann')
+            n_mels=N_MELS, fmin=20, fmax=8000, window='hann',
+            center=False)
         lm = librosa.power_to_db(mel, ref=np.max)
 
         if lm.shape[1] < FRAMES: lm = np.pad(lm, ((0, 0), (0, FRAMES - lm.shape[1])))
@@ -145,7 +147,7 @@ class DSConv(nn.Module):
         return self.r(self.bn2(self.pw(self.r(self.bn1(self.dw(x))))))
 
 class DSCNN(nn.Module):
-    def __init__(self, nc=2):
+    def __init__(self, nc=3):
         super().__init__()
         self.c1 = nn.Conv2d(1, 64, 3, 1, 1, bias=False)
         self.b1 = nn.BatchNorm2d(64)
@@ -177,8 +179,40 @@ def train():
     total = len(paths)
     print(f'Total: {total} samples')
 
-    tp, vp, tl, vl = train_test_split(
-        paths, labels_list, test_size=0.2, stratify=labels_list, random_state=42)
+    # ── Group-based train/val split ──
+    # Chunk names: {source_name}_{NNN}.npy → group by source_name
+    # All chunks from the same source WAV stay together (no data leakage)
+    def extract_source(path):
+        basename = os.path.splitext(os.path.basename(path))[0]
+        # Strip trailing _NNN (3-digit chunk index)
+        m = re.match(r'(.+)_(\d{3})$', basename)
+        return m.group(1) if m else basename
+
+    # Group paths by source
+    groups = defaultdict(list)
+    for p, l in zip(paths, labels_list):
+        groups[extract_source(p)].append((p, l))
+
+    group_ids = list(groups.keys())
+    n_sources = len(group_ids)
+    print(f'  Sources: {n_sources} (avg {total/n_sources:.1f} chunks/source)')
+
+    # Split source groups into train/val
+    train_groups, val_groups = train_test_split(
+        group_ids, test_size=0.2, random_state=42)
+
+    tp, tl = [], []
+    for g in train_groups:
+        for p, l in groups[g]:
+            tp.append(p); tl.append(l)
+
+    vp, vl = [], []
+    for g in val_groups:
+        for p, l in groups[g]:
+            vp.append(p); vl.append(l)
+
+    print(f'  Train: {len(tp)} chunks from {len(train_groups)} sources')
+    print(f'  Val:   {len(vp)} chunks from {len(val_groups)} sources')
 
     # Class weights
     counts = np.bincount(tl, minlength=len(CLASSES))

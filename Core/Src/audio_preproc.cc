@@ -60,8 +60,15 @@ void AudioPreproc_FeedFrame(const int32_t *pcm_512)
 
   /* 3. Power spectrum (257 bins) — CMSIS-DSP packed format:
         [R0, R1, I1, R2, I2, ..., R{N/2-1}, I{N/2-1}, R{N/2}] */
-  power[0] = fft_out[0] * fft_out[0];  /* DC */
-  for (int k = 1; k < PREPROC_FFT_N / 2; k++) {
+  /* Suppress very low freq bins (0-94Hz) — INMP441 self-noise dominates these,
+     causing Mel band 0 energy to be 4-5σ above training data distribution */
+  power[0] = 0.0f;  /* DC */
+  for (int k = 1; k <= 2; k++) {
+    float re = fft_out[2 * k - 1];
+    float im = fft_out[2 * k];
+    power[k] = 0.0f;  /* bins 1-2: 31-94 Hz */
+  }
+  for (int k = 3; k < PREPROC_FFT_N / 2; k++) {
     float re = fft_out[2 * k - 1];
     float im = fft_out[2 * k];
     power[k] = re * re + im * im;
