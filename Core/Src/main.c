@@ -109,8 +109,8 @@ int main(void)
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
   IWDG1->KR = 0x5555;
-  IWDG1->PR = 5;
-  IWDG1->RLR = 1500;            /* 1500 / 500Hz = 3s */
+  IWDG1->PR = 4;               /* /64 = 500Hz (LSI=32kHz) */
+  IWDG1->RLR = 750;             /* 750/500Hz = 1.5s */
   IWDG1->KR = 0xAAAA;
   IWDG1->KR = 0xCCCC;
   /* USER CODE END SysInit */

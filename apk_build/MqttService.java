@@ -383,7 +383,7 @@ public class MqttService extends Service {
             0x00, 0x04, 'M','Q','T','T',
             // Protocol Level 4 (MQTT 3.1.1)
             0x04,
-            // Connect Flags: CleanSession=0 (broker queues QoS-1 messages for offline client)
+            // Connect Flags: CleanSession=0 (broker queues messages for offline client)
             0x00,
             // Keep Alive (seconds)
             (byte)(KEEPALIVE_SEC >> 8), (byte)(KEEPALIVE_SEC & 0xFF)
@@ -414,7 +414,7 @@ public class MqttService extends Service {
     }
 
     /** Send SUBSCRIBE and wait for matching SUBACK.
-        If queued PUBLISH packets arrive first (CleanSession=0 resume),
+        If queued PUBLISH packets arrive first (session resume),
         process them before continuing to wait for SUBACK. */
     private boolean subscribeTopic(InputStream in, OutputStream out,
                                    String topic, int packetId) throws Exception {
@@ -439,14 +439,18 @@ public class MqttService extends Service {
                 if (pub != null) {
                     Log.i(TAG, "Q-PUB (subscribe phase) " + pub.topic + "=" + pub.payload);
                     String dev = deviceIdFromTopic(pub.topic, "alert");
-                    if (dev == null) dev = deviceIdFromTopic(pub.topic, "status");
                     if (dev == null) dev = deviceIdFromLegacyTopic(pub.topic);
                     if (dev != null && DeviceRegistry.contains(this, dev))
                         handleAlert(dev, pub.topic, pub.payload);
-                    else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
+                    else {
+                        String stDev = deviceIdFromTopic(pub.topic, "status");
+                        if (stDev != null && DeviceRegistry.contains(this, stDev))
+                            sDeviceLastSeen.put(stDev, System.currentTimeMillis());
+                        else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
                         String id = DeviceRegistry.normalize(pub.payload);
                         if (DeviceRegistry.contains(this, id))
                             sDeviceLastSeen.put(id, System.currentTimeMillis());
+                        }
                     }
                 }
                 // keep waiting for SUBACK

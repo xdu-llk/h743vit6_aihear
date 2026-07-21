@@ -527,9 +527,9 @@ function renderMonitorList(){
   document.getElementById('monitorCount').textContent=data.length+'台';
   if(!data.length){list.innerHTML='<div class="empty" style="padding:18px 0">尚未绑定设备</div>';return;}
   var h='';data.forEach(function(d){
-    var online=d.lastSeen&&Date.now()-d.lastSeen<90000,recent=d.lastAlert&&Date.now()-d.lastAlert.time<600000;
-    var state=recent?'alert':online?'online':'',status=recent?'告警 '+esc(d.lastAlert.cls||'异常'):online?'在线 · '+formatAgo(d.lastSeen):formatAgo(d.lastSeen);
-    h+='<button class="monitor-row'+(d.deviceId===deviceId?' selected':'')+(recent?' alerting':'')+'" onclick="selectDevice(\''+d.deviceId+'\')">'+
+    var online=d.lastSeen&&Date.now()-d.lastSeen<90000;var cs=controlStates[d.deviceId],alerting=cs&&cs.music===true;
+    var state=alerting?'alert':online?'online':'',status=alerting?'告警中':online?'在线 · '+formatAgo(d.lastSeen):formatAgo(d.lastSeen);
+    h+='<button class="monitor-row'+(d.deviceId===deviceId?' selected':'')+(alerting?' alerting':'')+'" onclick="selectDevice(\''+d.deviceId+'\')">'+
       '<span class="monitor-state '+state+'"></span><span class="monitor-main"><span class="monitor-name">'+esc(d.alias||d.deviceId)+'</span><span class="monitor-meta">'+esc(d.deviceId)+' · '+status+'</span></span>'+
       '<span class="monitor-count"><b>'+Number(d.todayAlerts||0)+'</b>今日</span></button>';
   });list.innerHTML=h;
@@ -670,7 +670,7 @@ function toggleArm(){
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.armed?'disarm':'arm')){
     var b=document.getElementById('btnArm');b.disabled=true;b.textContent='执行中';
-    setTimeout(function(){if(b.disabled)updateArmBtn();},3000);
+    setTimeout(function(){if(b.disabled)updateArmBtn();},800);
   }
 }
 function updateArmBtn(){
@@ -687,7 +687,7 @@ function toggleMusic(){
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.music?'stop_music':'play_music')){
     var b=document.getElementById('btnMusic');b.disabled=true;b.textContent='执行中';
-    setTimeout(function(){if(b.disabled)updateMusicBtn();},3000);
+    setTimeout(function(){if(b.disabled)updateMusicBtn();},1500);
   }
 }
 function updateMusicBtn(){
@@ -742,8 +742,8 @@ function getEnvAvg(){
 setInterval(function(){pollMqtt();pollEnv();if(started)loadStats();
   if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();
   updateArmBtn();updateMusicBtn();
-},5000);
-setInterval(pollControlState,1000);
+},2000);
+setInterval(pollControlState,500);
 
 // ═══════════════ 初始化 ═══════════════
 (function init(){
