@@ -300,6 +300,23 @@ public class AndroidBridge {
         return MqttService.sMsgCount;
     }
 
+    // ─── 远程控制 ───
+
+    @JavascriptInterface
+    public boolean mqttPublish(String topic, String payload) {
+        return MqttService.publish(topic, payload);
+    }
+
+    @JavascriptInterface
+    public String getEnvData() {
+        return MqttService.sLastEnv;
+    }
+
+    @JavascriptInterface
+    public String getControlState(String deviceId) {
+        return MqttService.getControlState(deviceId);
+    }
+
     // ─── 错误提示 ───
 
     private void toast(String msg) {

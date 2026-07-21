@@ -25,6 +25,7 @@ void         AudioPreproc_FeedFrame(const int32_t *pcm_512);
 bool         AudioPreproc_IsReady(void);
 const float* AudioPreproc_GetFeatures(void);
 void         AudioPreproc_Reset(void);
+void         AudioPreproc_Shift(int n_frames);  /* slide window: discard oldest n frames, keep rest */
 
 #ifdef __cplusplus
 }

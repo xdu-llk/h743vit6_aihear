@@ -1,26 +1,104 @@
+/*
+ * buzzer.c — TIM3 CH3 PWM on PB0: siren + lullaby melody (non-blocking)
+ * TIM3 counter = 240MHz / (PSC+1) = 4MHz.  ARR = 4e6 / freq - 1.
+ * CNT reset on every note change prevents ARR-shrink glitch.
+ */
 #include "buzzer.h"
 #include "tim.h"
 
+typedef struct { uint16_t freq; uint16_t dur_ms; } Note;
+
+static const Note melody[] = {
+  /* 一闪一闪亮晶晶 */
+  {523,300},{523,300},{784,300},{784,300},
+  {880,300},{880,300},{784,600},
+  /* 满天都是小星星 */
+  {698,300},{698,300},{659,300},{659,300},
+  {587,300},{587,300},{523,600},
+  /* 挂在天上放光明 */
+  {784,300},{784,300},{698,300},{698,300},
+  {659,300},{659,300},{587,600},
+  /* 好像许多小眼睛 */
+  {784,300},{784,300},{698,300},{698,300},
+  {659,300},{659,300},{587,600},
+  /* 一闪一闪亮晶晶 */
+  {523,300},{523,300},{784,300},{784,300},
+  {880,300},{880,300},{784,600},
+  /* 满天都是小星星 */
+  {698,300},{698,300},{659,300},{659,300},
+  {587,300},{587,300},{523,600},
+};
+#define N_NOTES  (sizeof(melody) / sizeof(Note))
+#define GAP_MS   40
+#define TICK_HZ  4000000UL
+
+static int      idx   = -1;
+static uint32_t t0    = 0;
+static bool     on    = false;
+static bool     gap   = false;
+
+static void pwm_out(uint16_t freq)
+{
+  if (freq == 0) {
+    TIM3->CCR3 = 0;
+  } else {
+    uint16_t arr = (uint16_t)(TICK_HZ / freq - 1);
+    TIM3->ARR  = arr;
+    TIM3->CNT  = 0;
+    TIM3->CCR3 = (uint16_t)(((uint32_t)arr * 3U) / 10U);  /* 30% duty */
+  }
+}
+
 void Buzzer_Init(void)
 {
-  /* TIM3 CH3 PWM on PB0 */
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);  /* off */
+  TIM3->CCR3 = 0;
 }
 
-void Buzzer_On(void)
+void Buzzer_On(void)  { TIM3->CCR3 = 150; }
+void Buzzer_Off(void) { TIM3->CCR3 = 0; }
+void Buzzer_Siren(void) { Buzzer_On(); HAL_Delay(600); Buzzer_Off(); }
+
+void Buzzer_PlayMelody(void)
 {
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 150);  /* 15% duty — gentle */
+  idx   = 0;
+  t0    = HAL_GetTick();
+  on    = true;
+  gap   = false;
+  pwm_out(melody[0].freq);
 }
 
-void Buzzer_Off(void)
+void Buzzer_StopMelody(void)
 {
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);  /* off */
+  on  = false;
+  idx = -1;
+  gap = false;
+  TIM3->ARR  = 999;
+  TIM3->CCR3 = 0;
 }
 
-void Buzzer_Siren(void)
+bool Buzzer_IsPlaying(void) { return on; }
+
+void Buzzer_MelodyTick(void)
 {
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 150);
-  HAL_Delay(600);
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
+  if (!on || idx < 0) return;
+
+  uint32_t now = HAL_GetTick();
+
+  uint16_t wait_ms = gap ? GAP_MS : melody[idx].dur_ms;
+  if ((now - t0) < wait_ms) return;
+
+  if (gap) {
+    /* gap done → next note */
+    gap = false;
+    idx++;
+    if (idx >= (int)N_NOTES) { Buzzer_StopMelody(); return; }
+    t0 = now;
+    pwm_out(melody[idx].freq);
+  } else {
+    /* note done → silence gap */
+    gap = true;
+    t0 = now;
+    pwm_out(0);
+  }
 }

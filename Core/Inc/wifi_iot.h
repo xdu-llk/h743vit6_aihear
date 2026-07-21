@@ -29,4 +29,8 @@ uint16_t WifiIoT_GetRxOverflow(void);
 uint8_t  WifiIoT_GetPendingCount(void);
 const char* WifiIoT_GetDeviceId(void);
 
+/* Remote commands from App via MQTT → ESP → UART */
+bool        WifiIoT_HasCommand(void);
+const char* WifiIoT_PopCommand(void);  /* returns NULL if no command pending */
+
 #endif

@@ -52,6 +52,9 @@ public class MqttService extends Service {
     private static final String TOPIC_STATUS_FILTER = "aihear/v1/demo/+/status";
     private static final String TOPIC_LEGACY_DEVICE_ALERT_FILTER = "aihear/+/alert";
     private static final String TOPIC_LEGACY_STATUS = "aihear/status";
+    private static final String TOPIC_ENV           = "aihear/env";
+    private static final String TOPIC_STATE_FILTER  = "aihear/v1/demo/+/state";
+    private static final String TOPIC_CMD           = "aihear/cmd";
     private static final String PREFS_NAME = "aihear_mqtt";
     private static final String KEY_CLIENT_ID = "mqtt_client_id";
 
@@ -84,11 +87,58 @@ public class MqttService extends Service {
     private final Set<Integer> activeAlertNotifications = new HashSet<>();
     private static final ConcurrentHashMap<String, Long> sDeviceLastSeen =
         new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> sDeviceControlState =
+        new ConcurrentHashMap<>();
 
     // ── 对外可读状态 ──
     String lastAlertClass = "";
     double lastAlertScore = 0;
     long   lastAlertTs    = 0;
+
+    // ── MQTT publish support (write to socket from outside mqtt-thread) ──
+    private static volatile OutputStream sOutput = null;
+    public static volatile String sLastEnv = "{}";  // latest T/H JSON
+
+    /** Build MQTT PUBLISH packet (QoS=0) */
+    private static byte[] buildPublish(String topic, String payload) {
+        try {
+            byte[] tb = topic.getBytes("UTF-8");
+            byte[] pb = payload.getBytes("UTF-8");
+            int rl = 2 + tb.length + pb.length;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            bos.write(0x30); // PUBLISH, QoS=0
+            do { int d = rl % 128; rl /= 128; if (rl > 0) d |= 0x80; bos.write(d); } while (rl > 0);
+            bos.write((tb.length >> 8) & 0xFF);
+            bos.write(tb.length & 0xFF);
+            bos.write(tb);
+            bos.write(pb);
+            return bos.toByteArray();
+        } catch (Exception e) { return null; }
+    }
+
+    /** Publish via active MQTT connection — callable from any thread */
+    public static boolean publish(String topic, String payload) {
+        OutputStream out = sOutput;
+        if (out == null) return false;
+        synchronized (out) {
+            try {
+                byte[] pkt = buildPublish(topic, payload);
+                if (pkt == null) return false;
+                out.write(pkt);
+                out.flush();
+                return true;
+            } catch (Exception e) {
+                Log.w(TAG, "publish 失败: " + e.getMessage());
+                return false;
+            }
+        }
+    }
+
+    public static String getControlState(String deviceId) {
+        if (deviceId == null) return "{}";
+        String state = sDeviceControlState.get(DeviceRegistry.normalize(deviceId));
+        return state == null ? "{}" : state;
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // 生命周期
@@ -202,20 +252,22 @@ public class MqttService extends Service {
                     }
                     Log.i(TAG, "CONNACK OK sessionPresent=" + sessionPresent);
 
-                    // ── MQTT SUBSCRIBE (skip on session resume) ──
-                    if (!sessionPresent) {
-                        if (!subscribeTopic(in, out, TOPIC_ALERT_FILTER, 1) ||
-                            !subscribeTopic(in, out, TOPIC_STATUS_FILTER, 2) ||
-                            !subscribeTopic(in, out, TOPIC_LEGACY_DEVICE_ALERT_FILTER, 3) ||
-                            !subscribeTopic(in, out, TOPIC_LEGACY_STATUS, 4)) {
-                            sock.close();
-                            backoff = backoff(backoff, maxBackoff);
-                            continue;
-                        }
+                    // Re-subscribe on every connection. This also upgrades an existing
+                    // persistent MQTT session when a new topic is added by an App update.
+                    if (!subscribeTopic(in, out, TOPIC_ALERT_FILTER, 1) ||
+                        !subscribeTopic(in, out, TOPIC_STATUS_FILTER, 2) ||
+                        !subscribeTopic(in, out, TOPIC_LEGACY_DEVICE_ALERT_FILTER, 3) ||
+                        !subscribeTopic(in, out, TOPIC_LEGACY_STATUS, 4) ||
+                        !subscribeTopic(in, out, TOPIC_ENV, 5) ||
+                        !subscribeTopic(in, out, TOPIC_STATE_FILTER, 6)) {
+                        sock.close();
+                        backoff = backoff(backoff, maxBackoff);
+                        continue;
                     }
 
                     // ── 连接成功 ──
                     backoff = 1;
+                    sOutput = out;  // publish only after CONNECT and all SUBACKs
                     updateConnStatus(2);
                     lastAlertByDevice.clear();
 
@@ -257,12 +309,17 @@ public class MqttService extends Service {
                                     Log.i(TAG, "PUBLISH topic=" + pub.topic + " payload=" + pub.payload);
                                     String alertDevice = deviceIdFromTopic(pub.topic, "alert");
                                     String statusDevice = deviceIdFromTopic(pub.topic, "status");
+                                    String stateDevice = deviceIdFromTopic(pub.topic, "state");
                                     String legacyAlertDevice = deviceIdFromLegacyTopic(pub.topic);
                                     if (alertDevice != null && DeviceRegistry.contains(this, alertDevice)) {
                                         handleAlert(alertDevice, pub.topic, pub.payload);
                                     } else if (statusDevice != null && DeviceRegistry.contains(this, statusDevice)) {
                                         sDeviceLastSeen.put(statusDevice, System.currentTimeMillis());
                                         Log.d(TAG, "设备状态 " + statusDevice + ": " + pub.payload);
+                                    } else if (stateDevice != null && DeviceRegistry.contains(this, stateDevice)) {
+                                        sDeviceControlState.put(stateDevice, pub.payload);
+                                        sDeviceLastSeen.put(stateDevice, System.currentTimeMillis());
+                                        Log.d(TAG, "控制状态 " + stateDevice + ": " + pub.payload);
                                     } else if (legacyAlertDevice != null &&
                                                DeviceRegistry.contains(this, legacyAlertDevice)) {
                                         handleAlert(legacyAlertDevice, pub.topic, pub.payload);
@@ -270,6 +327,8 @@ public class MqttService extends Service {
                                         String id = DeviceRegistry.normalize(pub.payload);
                                         if (DeviceRegistry.contains(this, id))
                                             sDeviceLastSeen.put(id, System.currentTimeMillis());
+                                    } else if (TOPIC_ENV.equals(pub.topic)) {
+                                        sLastEnv = pub.payload;  // store latest T/H
                                     }
                                 }
                                 break;
@@ -284,6 +343,7 @@ public class MqttService extends Service {
                     }
 
                     // 内循环退出 → 关闭 socket 准备重连
+                    sOutput = null;
                     try { sock.close(); } catch (Exception ignored) {}
 
                 } catch (Exception e) {

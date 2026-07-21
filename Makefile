@@ -3,8 +3,8 @@ DEBUG = 1
 OPT = -O3
 BUILD_DIR = build
 
-# CMSIS-NN source files
-CMSIS_NN_SRC := $(shell find third_party/cmsis-nn/Source -name '*.c' | sort)
+# CMSIS-NN source files (portable across Windows and Unix make shells)
+CMSIS_NN_SRC := $(sort $(wildcard third_party/cmsis-nn/Source/*/*.c))
 
 C_SOURCES = $(CMSIS_NN_SRC) \
 Core/Src/main.c Core/Src/gpio.c Core/Src/usart.c Core/Src/stm32h7xx_it.c Core/Src/stm32h7xx_hal_msp.c \
@@ -17,7 +17,7 @@ Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_exti.c Drivers/STM32H7xx_HAL_Driv
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart.c Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart_ex.c \
 Core/Src/system_stm32h7xx.c Core/Src/sysmem.c Core/Src/syscalls.c Core/Src/led.c Core/Src/buzzer.c Core/Src/alarm.c \
 Core/Src/rgb_led.c Core/Src/serial_io.c Core/Src/tim.c Core/Src/dma.c Core/Src/sai.c Core/Src/audio.c Core/Src/wifi_iot.c \
-Core/Src/oled.c Core/Src/button.c Core/Src/freertos.c \
+Core/Src/oled.c Core/Src/button.c Core/Src/dht11.c Core/Src/freertos.c \
 Middlewares/Third_Party/FreeRTOS/Source/tasks.c Middlewares/Third_Party/FreeRTOS/Source/queue.c Middlewares/Third_Party/FreeRTOS/Source/list.c \
 Middlewares/Third_Party/FreeRTOS/Source/timers.c Middlewares/Third_Party/FreeRTOS/Source/event_groups.c Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c \
 Middlewares/Third_Party/FreeRTOS/Source/croutine.c Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM7/r0p1/port.c \

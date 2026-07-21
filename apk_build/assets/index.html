@@ -135,6 +135,112 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 
 .empty{text-align:center;color:#C5B9B7;padding:40px 0;font-size:15px}
 .err-msg{background:#FFF3CD;color:#856404;padding:10px 14px;border-radius:10px;margin-bottom:10px;font-size:13px;display:none}
+
+/* ── 2026 visual refresh: compact monitoring workspace ── */
+:root{
+  --bg:#f4f6f5;--surface:#ffffff;--ink:#202927;--muted:#6f7c79;--line:#dfe5e2;
+  --teal:#147d72;--teal-soft:#e5f3f0;--red:#d94d4d;--red-soft:#fceaea;
+  --blue:#3267c8;--blue-soft:#eaf0fb;--amber:#b96b12;--amber-soft:#fff2dc;
+  --pink:#d77983;--shadow:0 2px 8px rgba(28,45,41,.07)
+}
+body{background:var(--bg);color:var(--ink);letter-spacing:0}
+.content-area{background:var(--bg)}
+.tab-pane{padding:14px 14px 20px}
+
+.bind-overlay{background:var(--bg)}
+.bind-card{border-radius:8px;padding:24px;border:1px solid var(--line);box-shadow:var(--shadow)}
+.bind-card h2{color:var(--ink);font-size:20px}
+.bind-card .sub,.bind-card .hint{color:var(--muted)}
+.bind-card p{overflow-wrap:anywhere}
+.bind-card input{border:1px solid var(--line);border-radius:6px;background:#fbfcfc}
+.bind-card input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft)}
+.bind-card .btn-bind{border-radius:6px;background:var(--teal);font-size:15px;padding:13px}
+.device-choice{border-color:var(--line);border-radius:6px}
+.device-choice.selected{border-color:var(--teal);background:var(--teal-soft);color:var(--teal)}
+.device-remove{border-radius:6px;border-color:#efcaca;background:var(--red-soft);color:var(--red)}
+
+.status-bar{border-radius:8px;padding:13px 14px;margin-bottom:10px;border:1px solid var(--line);box-shadow:none}
+.status-bar .left{min-width:0}.status-bar .left>div{min-width:0}
+.mqtt-dot{width:9px;height:9px}.mqtt-dot.on{background:#22a06b;box-shadow:0 0 0 4px #e4f5ed}
+.mqtt-dot.mid{background:#d79821;box-shadow:0 0 0 4px #fff4d8}
+.mqtt-dot.off{background:#c84c4c;box-shadow:0 0 0 4px #fce8e8}
+.stxt{font-size:13px;color:var(--ink)}.stxt.ok{color:#187a54}.stxt.err{color:#b54141}
+.dev{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px}
+.btn-toggle{border-radius:6px;background:var(--blue);padding:9px 13px;font-size:12px;min-width:88px}
+
+.control-panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:14px;overflow:hidden}
+.environment-row{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-bottom:1px solid var(--line)}
+.environment-row .label{font-size:11px;color:var(--muted)}
+.environment-row strong{font-size:16px;color:var(--amber);font-weight:750}
+.control-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}
+.control-btn{height:42px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer;min-width:0}
+.control-btn.arm{background:var(--teal-soft);border-color:#b8ddd5;color:#116b62}
+.control-btn.music{background:var(--blue-soft);border-color:#c7d5f1;color:#2859ad}
+.control-btn.monitor{background:#f1f3f2;color:#4d5a57}
+.control-btn:disabled{opacity:.62;cursor:default}
+.bulk-row{display:grid;grid-template-columns:minmax(76px,1fr) 1fr 1fr;gap:8px;align-items:center;padding:10px 12px;border-top:1px solid var(--line);background:#fafbfb}
+.bulk-row span{font-size:11px;color:var(--muted)}
+.bulk-btn{height:34px;border-radius:6px;font-size:11px;font-weight:650;background:#fff;cursor:pointer}
+.bulk-btn.arm{border:1px solid #b8ddd5;color:#116b62}.bulk-btn.disarm{border:1px solid #efc5c5;color:#b54141}
+
+.monitor-toolbar{margin:2px 0 8px}.monitor-toolbar h3{font-size:14px;color:var(--ink)}
+.monitor-toolbar span{color:var(--muted)}
+.monitor-add{border-radius:6px;border-color:var(--line);color:var(--teal);font-size:20px}
+.monitor-list{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.monitor-row{min-height:62px;border-bottom-color:var(--line);padding:10px 12px}
+.monitor-row.selected{background:#f0f7f5}.monitor-row.alerting{background:var(--red-soft)}
+.monitor-name,.monitor-meta{display:block}
+.monitor-name{color:var(--ink)}.monitor-meta,.monitor-count{color:var(--muted)}
+.monitor-count b{color:var(--red)}
+.detail-title{color:var(--ink);font-size:13px;margin-top:2px}
+
+.alert-item,.feed-item{border-radius:8px;border-color:var(--line);box-shadow:none;padding:13px}
+.alert-item.cry-card{background:#fff;border-left-color:var(--red)}
+.alert-item .del{border-radius:6px;background:var(--red-soft);border-color:#efcaca;color:#b54141}
+.feed-row input{border:1px solid var(--line);border-radius:6px;background:#fff}
+.feed-row input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft)}
+.feed-row button{border-radius:6px;background:var(--teal);font-size:13px}
+
+.action-row{display:flex;justify-content:flex-end;gap:8px;padding:4px 0 18px}
+.action-btn{height:34px;padding:0 13px;border-radius:6px;background:#fff;font-size:11px;cursor:pointer}
+.action-btn.manage{border:1px solid var(--line);color:#4f5d59}
+.action-btn.clear{border:1px solid #efcaca;color:#b54141;background:var(--red-soft)}
+
+.stat-grid{gap:8px;margin-bottom:12px}
+.stat-card{border-radius:8px;padding:14px 10px;border-color:var(--line);box-shadow:none;text-align:left;min-height:92px}
+.stat-card .num{font-size:28px;color:var(--ink);line-height:1.1}
+.stat-card .label{font-size:11px;color:var(--muted);margin-top:8px}
+.stat-card:nth-child(1) .num,.stat-card:nth-child(3) .num{color:var(--red)}
+.stat-card:nth-child(2) .num,.stat-card:nth-child(4) .num{color:var(--teal)}
+.stat-card:nth-child(5) .num{color:var(--amber)}.stat-card:nth-child(6) .num{color:var(--blue)}
+.bar-chart{border-radius:8px;border:1px solid var(--line);box-shadow:none;padding:16px}
+.bar-chart h3{color:var(--ink)}
+.bar-row .bar{background:#eef1f0}.bar-row .bar .fill{background:var(--red);border-radius:4px}
+
+.ai-card{border-radius:8px;border:1px solid var(--line);box-shadow:none;padding:16px}
+.ai-card h3{color:var(--ink)}
+.ai-result{border-radius:6px;border-color:var(--line);background:#f8faf9;color:#394440}
+.btn-ai{border-radius:6px;background:var(--blue);font-size:14px;padding:12px}
+.api-cfg{border-radius:6px;border-color:var(--line);background:#f8faf9}
+.api-cfg input,.api-cfg button{border-radius:6px}.api-cfg button{background:var(--teal)}
+
+.tab-bar{border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(28,45,41,.05)}
+.tab-bar button{padding:9px 0 8px;color:#7a8784;gap:2px;position:relative}
+.tab-bar button .tb-icon{width:24px;height:20px;border-radius:5px;background:#eef1f0;color:#66736f;font-size:10px;font-weight:800;display:grid;place-items:center}
+.tab-bar button.active{color:var(--teal)}
+.tab-bar button.active .tb-icon{background:var(--teal-soft);color:var(--teal)}
+
+.overlay{background:rgba(168,42,42,.96)}
+.overlay .dismiss{border-radius:6px;color:#a62c2c}
+.err-msg{border-radius:6px;background:var(--amber-soft);color:#74450c}
+.empty{color:#8a9693}
+
+@media (max-width:360px){
+  .tab-pane{padding-left:10px;padding-right:10px}
+  .control-grid{gap:6px;padding:10px}.control-btn{font-size:11px}
+  .bulk-row{grid-template-columns:68px 1fr 1fr;gap:6px;padding:9px 10px}
+  .btn-toggle{min-width:76px;padding-left:9px;padding-right:9px}
+}
 </style>
 </head>
 <body>
@@ -142,7 +248,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 <!-- ═══════════════ 设备绑定 ═══════════════ -->
 <div id="bindPage" class="bind-overlay">
   <div class="bind-card">
-    <h2>🔗 绑定设备</h2>
+    <h2>绑定设备</h2>
     <p class="sub">首次使用，请输入 ESP8266 设备 ID</p>
     <label>设备 ID</label>
     <input type="text" id="bindDeviceId" placeholder="例: aihear_AABBCC" autocomplete="off">
@@ -179,15 +285,28 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
           <div class="dev" id="deviceInfo">未绑定设备</div>
         </div>
       </div>
-      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">▶ 开启监视</button>
+      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">开启监视</button>
+    </div>
+    <div class="control-panel">
+      <div class="environment-row"><span class="label">当前环境</span><strong id="envDisplay">--°C · --% RH</strong></div>
+      <div class="control-grid">
+        <button id="btnArm" class="control-btn arm" onclick="toggleArm()">布防</button>
+        <button id="btnMusic" class="control-btn music" onclick="toggleMusic()">播放音乐</button>
+        <button id="btnMonitorAll" class="control-btn monitor" onclick="toggleMonitorAll()">全部监视</button>
+      </div>
+      <div class="bulk-row">
+        <span>全部设备</span>
+        <button class="bulk-btn arm" onclick="sendCmdAll('arm')">一键布防</button>
+        <button class="bulk-btn disarm" onclick="sendCmdAll('disarm')">一键撤防</button>
+      </div>
     </div>
     <div class="monitor-toolbar"><div><h3 style="display:inline">设备总览</h3><span id="monitorCount">0台</span></div><button class="monitor-add" onclick="showBind()" title="管理设备">＋</button></div>
     <div id="deviceMonitorList" class="monitor-list"><div class="empty">尚未绑定设备</div></div>
     <div class="detail-title"><span id="selectedDeviceTitle">设备详情</span><span>最近告警</span></div>
     <div id="alertList"><div class="empty">暂无告警记录</div></div>
-    <div style="display:flex;justify-content:center;gap:12px;padding:8px 0 20px">
-      <button onclick="showBind()" style="background:none;border:1px solid #DDD;color:#999;padding:6px 16px;border-radius:20px;font-size:12px;cursor:pointer">🔗 绑定设备</button>
-      <button onclick="clearAlerts()" style="background:none;border:1px solid #E8534F;color:#E8534F;padding:6px 16px;border-radius:20px;font-size:12px;cursor:pointer">🗑 清空</button>
+    <div class="action-row">
+      <button class="action-btn manage" onclick="showBind()">管理设备</button>
+      <button class="action-btn clear" onclick="clearAlerts()">清空告警</button>
     </div>
   </div>
 
@@ -209,9 +328,11 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
       <div class="stat-card"><div class="num" id="todayFeeds">0</div><div class="label">今日喂养</div></div>
       <div class="stat-card"><div class="num" id="weekAlerts">0</div><div class="label">本周告警</div></div>
       <div class="stat-card"><div class="num" id="weekFeeds">0</div><div class="label">本周喂养</div></div>
+      <div class="stat-card"><div class="num" id="avgTemp">--</div><div class="label">平均温度</div></div>
+      <div class="stat-card"><div class="num" id="avgHumi">--</div><div class="label">平均湿度</div></div>
     </div>
     <div class="bar-chart">
-      <h3>📈 近7天告警趋势</h3>
+      <h3>近7天告警趋势</h3>
       <div id="chartBars"></div>
     </div>
   </div>
@@ -219,15 +340,15 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   <!-- AI -->
   <div id="pane-ai" class="tab-pane">
     <div class="ai-card">
-      <h3>🤖 DeepSeek AI 分析</h3>
+      <h3>DeepSeek AI 分析</h3>
       <div class="detail-title"><span id="aiDeviceTitle">当前设备</span><span></span></div>
       <p style="font-size:13px;color:#B8A9A5;margin-bottom:10px">基于近期告警和喂养数据，分析宝宝作息规律</p>
       <div class="ai-result" id="aiResult">点击下方按钮开始分析</div>
-      <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">🔍 开始AI分析</button>
+      <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">开始分析</button>
       <div class="api-cfg">
         <label>DeepSeek API Key（已预置，可自行更换）</label>
         <input type="password" id="apiKey" value="" placeholder="sk-xxxxxxxx">
-        <button onclick="saveApiKey()">💾 保存</button>
+        <button onclick="saveApiKey()">保存</button>
       </div>
     </div>
   </div>
@@ -235,10 +356,10 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 
 <!-- ═══════════════ 底部导航栏 ═══════════════ -->
 <div class="tab-bar">
-  <button class="active" onclick="switchTab('alerts')"><span class="tb-icon">🚨</span>告警</button>
-  <button onclick="switchTab('feeding')"><span class="tb-icon">🍼</span>喂养</button>
-  <button onclick="switchTab('stats')"><span class="tb-icon">📊</span>统计</button>
-  <button onclick="switchTab('ai')"><span class="tb-icon">🤖</span>AI分析</button>
+  <button class="active" onclick="switchTab('alerts')"><span class="tb-icon">警</span>告警</button>
+  <button onclick="switchTab('feeding')"><span class="tb-icon">记</span>喂养</button>
+  <button onclick="switchTab('stats')"><span class="tb-icon">数</span>统计</button>
+  <button onclick="switchTab('ai')"><span class="tb-icon">AI</span>分析</button>
 </div>
 
 <script>
@@ -290,10 +411,10 @@ function renderDeviceList(){
 function updateDeviceInfo(){
   var dn=deviceId?deviceAlias(deviceId)+' · '+deviceId:'未绑定设备';
   document.getElementById('deviceInfo').textContent=dn;
-  document.getElementById('selectedDeviceTitle').textContent=deviceId?'📋 '+deviceAlias(deviceId):'设备详情';
-  document.getElementById('feedDeviceTitle').textContent=deviceId?'🍼 '+deviceAlias(deviceId):'喂养记录';
-  document.getElementById('statsDeviceTitle').textContent=deviceId?'📊 '+deviceAlias(deviceId):'数据统计';
-  document.getElementById('aiDeviceTitle').textContent=deviceId?'🤖 '+deviceAlias(deviceId):'当前设备';
+  document.getElementById('selectedDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'设备详情';
+  document.getElementById('feedDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'喂养记录';
+  document.getElementById('statsDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'数据统计';
+  document.getElementById('aiDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'当前设备';
 }
 function showBind(){document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';renderDeviceList();document.getElementById('bindPage').classList.remove('hidden');}
 function selectDevice(id){
@@ -423,11 +544,11 @@ function loadFeedings(){
   var list=document.getElementById('feedList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
   var data=JSON.parse(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()||'[]');
-  if(!data.length){list.innerHTML='<div class="empty">🍼 暂无喂养记录</div>';return;}
+  if(!data.length){list.innerHTML='<div class="empty">暂无喂养记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
     var f=data[i],d=new Date(f.time);
-    h+='<div class="feed-item"><div class="fleft"><div class="fts">🍼 喂养</div>'+
+    h+='<div class="feed-item"><div class="fleft"><div class="fts">喂养记录</div>'+
       '<div class="fnt">'+d.toLocaleString('zh-CN')+' · '+esc(f.note||'无备注')+'</div></div>'+
       '<button class="del" onclick="delFeeding('+f.id+')">删除</button></div>';
   }
@@ -451,6 +572,9 @@ function loadStats(){
   days.forEach(function(k){var v=dayMap[k],w=Math.round(v/maxV*100);
     bars+='<div class="bar-row"><span class="day">'+k.slice(5)+'</span><div class="bar"><div class="fill" style="width:'+w+'%"></div>'+(v>0?'<span>'+v+'</span>':'')+'</div></div>';});
   document.getElementById('chartBars').innerHTML=bars;
+  var avg=getEnvAvg();
+  document.getElementById('avgTemp').textContent=avg?avg.temp.toFixed(1)+'℃':'--';
+  document.getElementById('avgHumi').textContent=avg?Math.round(avg.humi)+'%':'--';
 }
 
 // ═══════════════ MQTT 状态 ═══════════════
@@ -475,21 +599,23 @@ function saveApiKey(){var k=document.getElementById('apiKey').value.trim();if(k)
 function runAiAnalysis(){
   var apiKey=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value.trim();
   if(!apiKey){alert('请先填入 DeepSeek API Key');return;}
-  var btn=document.getElementById('btnAi');btn.textContent='⏳ 分析中...';btn.disabled=true;
+  var btn=document.getElementById('btnAi');btn.textContent='分析中...';btn.disabled=true;
   var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlertsForDevice(deviceId):null)||'[]');
   var feeds=JSON.parse((typeof Android!=='undefined'?(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()):null)||'[]');
   var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,at=[];
   for(var i=0;i<alerts.length;i++){if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));}
   for(var i=0;i<feeds.length;i++){if(feeds[i].time>=ds)tf++;}
   var devName=deviceId?deviceAlias(deviceId):'全部设备';
-  var prompt='你是婴儿护理专家。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养\n\n请分析哭声规律、喂养间隔建议、综合护理建议。限300字。';
+  var avg=getEnvAvg(),envStr='';
+  if(avg)envStr='\n环境：\n- 平均温度: '+avg.temp.toFixed(1)+'℃\n- 平均湿度: '+Math.round(avg.humi)+'%';
+  var prompt='你是婴儿护理专家，同时懂环境健康。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养'+envStr+'\n\n请综合分析哭声规律、喂养间隔、温湿度对宝宝舒适度的影响、综合护理建议。限300字。';
   fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
     body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
   }).then(function(r){return r.json()}).then(function(d){
     document.getElementById('aiResult').textContent=d.choices?d.choices[0].message.content:'失败: '+JSON.stringify(d);
-    btn.textContent='🔍 开始AI分析';btn.disabled=false;
-  }).catch(function(e){document.getElementById('aiResult').textContent='网络错误: '+e.message;btn.textContent='🔍 开始AI分析';btn.disabled=false;});
+    btn.textContent='开始分析';btn.disabled=false;
+  }).catch(function(e){document.getElementById('aiResult').textContent='网络错误: '+e.message;btn.textContent='开始分析';btn.disabled=false;});
 }
 
 // ═══════════════ Tab 切换 ═══════════════
@@ -505,14 +631,122 @@ function switchTab(name){
 // ═══════════════ UI ═══════════════
 function updateUI(){
   var btn=document.getElementById('btnToggle');
-  if(started){btn.textContent='⏹ 停止监视';btn.style.background='#A8D8CA';}
-  else{btn.textContent='▶ 开启监视';btn.style.background='#F2A0A0';}
+  if(started){btn.textContent='停止监视';btn.style.background='#147d72';}
+  else{btn.textContent='开启监视';btn.style.background='#3267c8';}
 }
 function refresh(){updateUI();loadStats();renderMonitorList();}
 function esc(s){var d=document.createElement('div');d.textContent=(s||'');return d.innerHTML;}
 
+var envHistory=[]; // {t,h,ts} ring buffer for stats
+var lastEnvSampleKey='';
+
+// ═══════════════ 远程控制 ═══════════════
+function sendCmd(cmd){
+  if(!deviceId){showError('请先绑定设备');return false;}
+  if(typeof Android==='undefined'){showError('控制桥接不可用');return false;}
+  var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'","device":"'+deviceId+'"}');
+  if(!ok)showError('MQTT 未连接，命令发送失败');
+  return ok;
+}
+function sendCmdAll(cmd){
+  if(typeof Android==='undefined'){showError('控制桥接不可用');return false;}
+  var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'"}');
+  if(!ok)showError('MQTT 未连接，一键命令发送失败');
+  return ok;
+}
+
+var controlStates={};
+function currentControlState(){return controlStates[deviceId]||null;}
+
+function toggleArm(){
+  var s=currentControlState();
+  if(!s){showError('正在等待设备状态');return;}
+  if(sendCmd(s.armed?'disarm':'arm')){
+    var b=document.getElementById('btnArm');b.disabled=true;b.textContent='执行中';
+  }
+}
+function updateArmBtn(){
+  var b=document.getElementById('btnArm'),s=currentControlState();
+  if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
+  b.disabled=false;
+  if(s.armed){b.textContent='撤防';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
+  else{b.textContent='布防';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
+}
+
+function toggleMusic(){
+  var s=currentControlState();
+  if(!s){showError('正在等待设备状态');return;}
+  if(sendCmd(s.music?'stop_music':'play_music')){
+    var b=document.getElementById('btnMusic');b.disabled=true;b.textContent='执行中';
+  }
+}
+function updateMusicBtn(){
+  var b=document.getElementById('btnMusic'),s=currentControlState();
+  if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
+  b.disabled=false;
+  if(s.music){b.textContent='播放中';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
+  else{b.textContent='播放音乐';b.style.background='#eaf0fb';b.style.borderColor='#c7d5f1';b.style.color='#2859ad';}
+}
+
+function pollControlState(){
+  if(typeof Android==='undefined'||!deviceId)return;
+  var d={};
+  try{d=JSON.parse(Android.getControlState(deviceId)||'{}');}catch(e){return;}
+  if(typeof d.armed!=='boolean'||typeof d.music!=='boolean')return;
+  var id=normalizeDeviceId(d.deviceId||deviceId);
+  if(id!==deviceId)return;
+  controlStates[id]={armed:d.armed,music:d.music,uptimeMs:d.uptimeMs||0};
+  localStorage.setItem('arm_state_'+id,d.armed?'1':'0');
+  updateArmBtn();updateMusicBtn();
+}
+
+var monitorAll=false;
+function toggleMonitorAll(){
+  if(monitorAll){
+    devices.forEach(function(id){selectDeviceSilent(id);Android.stopService();});
+    monitorAll=false;
+  }else{
+    devices.forEach(function(id){selectDeviceSilent(id);Android.startService();});
+    monitorAll=true;
+  }
+  updateMonitorAllBtn();
+}
+function selectDeviceSilent(id){var prev=deviceId;deviceId=id;localStorage.setItem('selected_device',id);}
+function updateMonitorAllBtn(){
+  var b=document.getElementById('btnMonitorAll');
+  if(monitorAll){b.textContent='全部停止';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
+  else{b.textContent='全部监视';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#4d5a57';}
+}
+
+function pollEnv(){
+  if(typeof Android==='undefined')return;
+  try{var d=JSON.parse(Android.getEnvData()||'{}');}
+  catch(e){var d={};}
+  if(d.temp!=null&&d.humi!=null){
+    document.getElementById('envDisplay').textContent=d.temp.toFixed(1)+'°C · '+Math.round(d.humi)+'% RH';
+    var sampleKey=(d.deviceId||'')+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
+    if(sampleKey===lastEnvSampleKey)return;
+    lastEnvSampleKey=sampleKey;
+    // track history (keep last 24h = 17280 readings @ 5s)
+    var now=Date.now();envHistory.push({t:d.temp,h:d.humi,ts:now});
+    var cutoff=now-86400000;
+    while(envHistory.length&&envHistory[0].ts<cutoff)envHistory.shift();
+    if(envHistory.length>20000)envHistory.splice(0,envHistory.length-17280);
+  }
+}
+function getEnvAvg(){
+  if(!envHistory.length)return null;
+  var st=0,sh=0,n=envHistory.length;
+  for(var i=0;i<n;i++){st+=envHistory[i].t;sh+=envHistory[i].h;}
+  return {temp:(st/n),humi:(sh/n)};
+}
+
 // ═══════════════ 轮询 ═══════════════
-setInterval(function(){pollMqtt();if(started)loadStats();if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();},5000);
+setInterval(function(){pollMqtt();pollEnv();if(started)loadStats();
+  if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();
+  updateArmBtn();updateMusicBtn();updateMonitorAllBtn();
+},5000);
+setInterval(pollControlState,1000);
 
 // ═══════════════ 初始化 ═══════════════
 (function init(){
@@ -520,7 +754,7 @@ setInterval(function(){pollMqtt();if(started)loadStats();if(document.getElementB
   var sk=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value;
   document.getElementById('apiKey').value=sk;
   if(!localStorage.getItem('ds_api_key'))localStorage.setItem('ds_api_key',sk);
-  updateUI();pollMqtt();loadStats();renderMonitorList();
+  updateUI();updateArmBtn();updateMusicBtn();pollMqtt();pollControlState();loadStats();renderMonitorList();
 })();
 </script>
 </body>

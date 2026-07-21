@@ -39,7 +39,11 @@ static char device_id[32];  /* captured from ESP +DEVICEID:aihear_XXXXXX */
 static uint32_t esp_down_since_ms = 0;  /* millis() when link first went down */
 static uint8_t  esp_reset_count   = 0;  /* resets this power cycle */
 
-/* ── pending message queue (link-down buffer) ── */
+/* ── remote command queue (App → MQTT → ESP → UART) ── */
+#define CMD_QUEUE_SIZE  4
+static char cmd_queue[CMD_QUEUE_SIZE][64];
+static volatile uint8_t cmd_wr = 0;
+static volatile uint8_t cmd_rd = 0;
 typedef struct {
   char    topic[64];
   char    payload[128];
@@ -110,6 +114,20 @@ static void process_line(const char *line)
   }
   else if (strstr(line, "+CONFIG:")) {
     /* silently ignore config lines */
+  }
+  else if ((p = strstr(line, "+CMD:")) != NULL) {
+    /* Remote command from App.  Enqueue for freertos.c to consume. */
+    const char *cmd = p + 5;
+    uint8_t next = (cmd_wr + 1) & (CMD_QUEUE_SIZE - 1);
+    if (next != cmd_rd) {  /* not full */
+      strncpy(cmd_queue[cmd_wr], cmd, sizeof(cmd_queue[cmd_wr]) - 1);
+      cmd_queue[cmd_wr][sizeof(cmd_queue[cmd_wr]) - 1] = '\0';
+      /* strip trailing \r */
+      size_t cl = strlen(cmd_queue[cmd_wr]);
+      if (cl > 0 && cmd_queue[cmd_wr][cl - 1] == '\r')
+        cmd_queue[cmd_wr][cl - 1] = '\0';
+      cmd_wr = next;
+    }
   }
   else {
     /* Unknown line — print for debugging */
@@ -309,3 +327,14 @@ uint32_t WifiIoT_GetLastPubackSeq(void) { return last_puback_seq; }
 uint16_t WifiIoT_GetRxOverflow(void)    { return rx_overflow; }
 uint8_t  WifiIoT_GetPendingCount(void)  { return pending_count; }
 const char* WifiIoT_GetDeviceId(void)   { return device_id[0] ? device_id : NULL; }
+
+/* ── Remote command queue ── */
+bool WifiIoT_HasCommand(void) { return cmd_wr != cmd_rd; }
+
+const char* WifiIoT_PopCommand(void)
+{
+  if (cmd_wr == cmd_rd) return NULL;
+  const char *cmd = cmd_queue[cmd_rd];
+  cmd_rd = (cmd_rd + 1) & (CMD_QUEUE_SIZE - 1);
+  return cmd;
+}

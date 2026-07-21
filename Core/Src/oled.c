@@ -1,67 +1,92 @@
-/* oled.c — SSD1306 128x64 bit-bang I2C, PD0=SCL, PD1=SDA */
-#pragma GCC optimize ("Og")
+/*
+ * oled.c — SSD1306 128x64 via hardware I2C2 (PB10=SCL, PB11=SDA)
+ * No more bit-bang, no more critical sections.
+ */
 #include "oled.h"
-#include "FreeRTOS.h"
-#include "task.h"
+#include "main.h"
 #include <stdio.h>
 #include <string.h>
 
-#define SCL_H()  (GPIOD->BSRR = (uint32_t)GPIO_PIN_0)
-#define SCL_L()  (GPIOD->BSRR = (uint32_t)GPIO_PIN_0 << 16U)
-#define SDA_H()  (GPIOD->BSRR = (uint32_t)GPIO_PIN_1)
-#define SDA_L()  (GPIOD->BSRR = (uint32_t)GPIO_PIN_1 << 16U)
-#define SDA_IN() ((GPIOD->IDR & GPIO_PIN_1) != 0)
+#define OLED_ADDR  0x78   /* 0x3C << 1 */
 
-static void delay_us(uint32_t n) {
-  for (volatile uint32_t i = 0; i < n * 40; i++) { __NOP(); }
+static I2C_HandleTypeDef hi2c2;
+static float env_temp_c;
+static float env_humi_pct;
+static uint8_t env_valid;
+
+static void oled_cmd(uint8_t c) {
+  uint8_t buf[2] = {0x00, c};
+  HAL_I2C_Master_Transmit(&hi2c2, OLED_ADDR, buf, 2, 10);
 }
 
-static void i2c_start(void) {
-  SDA_H(); delay_us(1); SCL_H(); delay_us(1);
-  SDA_L(); delay_us(1); SCL_L(); delay_us(1);
+static void oled_cmds(const uint8_t *cmds, int n) {
+  /* batch commands: each is 0x00 + cmd */
+  for (int i = 0; i < n; i++) oled_cmd(cmds[i]);
 }
 
-static void i2c_stop(void) {
-  SDA_L(); SCL_H(); delay_us(1); SDA_H(); delay_us(1);
+static void oled_dat(uint8_t d) {
+  uint8_t buf[2] = {0x40, d};
+  HAL_I2C_Master_Transmit(&hi2c2, OLED_ADDR, buf, 2, 10);
 }
 
-static uint8_t i2c_write(uint8_t b) {
-  for (uint8_t m = 0x80; m; m >>= 1) {
-    (b & m) ? SDA_H() : SDA_L();
-    SCL_H(); delay_us(1); SCL_L(); delay_us(1);
-  }
-  SDA_H(); SCL_H(); delay_us(1);
-  uint8_t ack = !SDA_IN();
-  SCL_L(); return ack;
+static void oled_dats(const uint8_t *d, int n) {
+  /* batch: 0x40 prefix + N data bytes */
+  uint8_t buf[129];
+  buf[0] = 0x40;
+  if (n > 128) n = 128;
+  memcpy(buf + 1, d, n);
+  HAL_I2C_Master_Transmit(&hi2c2, OLED_ADDR, buf, n + 1, 10);
 }
 
-static void oled_cmd(uint8_t c) { i2c_start(); i2c_write(0x78); i2c_write(0x00); i2c_write(c); i2c_stop(); }
-static void oled_dat(uint8_t d) { i2c_start(); i2c_write(0x78); i2c_write(0x40); i2c_write(d); i2c_stop(); }
+/* ── I2C2 init (PB10=SCL/AF4, PB11=SDA/AF4, 400 kHz) ── */
+static void I2C2_Init(void)
+{
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_I2C2_CLK_ENABLE();
 
+  GPIO_InitTypeDef g = {0};
+  g.Pin   = GPIO_PIN_10 | GPIO_PIN_11;
+  g.Mode  = GPIO_MODE_AF_OD;
+  g.Pull  = GPIO_PULLUP;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  g.Alternate = GPIO_AF4_I2C2;
+  HAL_GPIO_Init(GPIOB, &g);
+
+  hi2c2.Instance             = I2C2;
+  hi2c2.Init.Timing          = 0x00303D5B;  /* 400 kHz @ 240 MHz HCLK (STM32CubeMX precomputed) */
+  hi2c2.Init.OwnAddress1     = 0;
+  hi2c2.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2     = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode   = I2C_NOSTRETCH_ENABLE;
+  HAL_I2C_Init(&hi2c2);
+}
+
+/* ── OLED ── */
 void OLED_Init(void)
 {
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  GPIO_InitTypeDef g = {0};
-  g.Pin = GPIO_PIN_0 | GPIO_PIN_1;
-  g.Mode = GPIO_MODE_OUTPUT_OD;
-  g.Pull = GPIO_NOPULL;
-  g.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &g);
-  SDA_H(); SCL_H();
+  I2C2_Init();
 
-  oled_cmd(0xAE); oled_cmd(0xD5); oled_cmd(0x80); oled_cmd(0xA8); oled_cmd(0x3F);
-  oled_cmd(0xD3); oled_cmd(0x00); oled_cmd(0x40); oled_cmd(0x8D); oled_cmd(0x14);
-  oled_cmd(0x20); oled_cmd(0x00); oled_cmd(0xA1); oled_cmd(0xC8);
-  oled_cmd(0xDA); oled_cmd(0x12); oled_cmd(0x81); oled_cmd(0xCF);
-  oled_cmd(0xD9); oled_cmd(0xF1); oled_cmd(0xDB); oled_cmd(0x40);
-  oled_cmd(0xA4); oled_cmd(0xA6); oled_cmd(0xAF);
+  const uint8_t init[] = {
+    0xAE, 0xD5, 0x80, 0xA8, 0x3F,
+    0xD3, 0x00, 0x40, 0x8D, 0x14,
+    0x20, 0x00, 0xA1, 0xC8,
+    0xDA, 0x12, 0x81, 0xCF,
+    0xD9, 0xF1, 0xDB, 0x40,
+    0xA4, 0xA6, 0xAF
+  };
+  oled_cmds(init, sizeof(init));
 
+  /* clear all 8 pages */
   for (uint8_t p = 0; p < 8; p++) {
     oled_cmd(0xB0 + p); oled_cmd(0x00); oled_cmd(0x10);
     for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
   }
 }
 
+/* ── 6×8 font ── */
 static const uint8_t font6x8[][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, {0x00,0x00,0x5F,0x00,0x00,0x00},
   {0x00,0x07,0x00,0x07,0x00,0x00}, {0x14,0x7F,0x14,0x7F,0x14,0x00},
@@ -115,7 +140,13 @@ static void oled_char(uint8_t x, uint8_t y, char c) {
   if (c < 32 || c > 127) c = '?';
   const uint8_t *bm = font6x8[c - 32];
   oled_cmd(0xB0 + y); oled_cmd(0x00 + (x & 0x0F)); oled_cmd(0x10 + (x >> 4));
-  for (uint8_t i = 0; i < 6; i++) oled_dat(bm[i]);
+  oled_dats(bm, 6);
+}
+
+void OLED_SetEnvironment(float temp_c, float humi_pct, uint8_t valid) {
+  env_temp_c = temp_c;
+  env_humi_pct = humi_pct;
+  env_valid = valid;
 }
 
 void OLED_ShowStatus(const char *state, const char *cls, float dbfs) {
@@ -125,19 +156,34 @@ void OLED_ShowStatus(const char *state, const char *cls, float dbfs) {
   last_ms = now;
 
   char buf[32];
-  taskENTER_CRITICAL();
   const uint8_t X0 = 12;
-  for (uint8_t x = 0; x < 128; x++) { oled_cmd(0xB0); oled_cmd(0x00+(x&0xF)); oled_cmd(0x10+(x>>4)); oled_dat(0); }
+  /* clear line 0 */
+  oled_cmd(0xB0); oled_cmd(0x00); oled_cmd(0x10);
+  for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
   snprintf(buf, sizeof(buf), "AI Hear");
-  for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i*6, 0, buf[i]);
-  for (uint8_t x = 0; x < 128; x++) { oled_cmd(0xB2); oled_cmd(0x00+(x&0xF)); oled_cmd(0x10+(x>>4)); oled_dat(0); }
+  for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i * 6, 0, buf[i]);
+  /* clear line 2 */
+  oled_cmd(0xB2); oled_cmd(0x00); oled_cmd(0x10);
+  for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
   snprintf(buf, sizeof(buf), "%s", state);
-  for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i*6, 2, buf[i]);
-  for (uint8_t x = 0; x < 128; x++) { oled_cmd(0xB4); oled_cmd(0x00+(x&0xF)); oled_cmd(0x10+(x>>4)); oled_dat(0); }
+  for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i * 6, 2, buf[i]);
+  /* line 4 */
+  oled_cmd(0xB4); oled_cmd(0x00); oled_cmd(0x10);
+  for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
   if (strcmp(state, "DISARMED") != 0) {
     if (cls) snprintf(buf, sizeof(buf), "%s %.0fdB", cls, (double)dbfs);
     else      snprintf(buf, sizeof(buf), "%.0f dB", (double)dbfs);
-    for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i*6, 4, buf[i]);
+    for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i * 6, 4, buf[i]);
   }
-  taskEXIT_CRITICAL();
+
+  /* line 6: DHT11 temperature and humidity */
+  oled_cmd(0xB6); oled_cmd(0x00); oled_cmd(0x10);
+  for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
+  if (env_valid) {
+    snprintf(buf, sizeof(buf), "T:%.0fC H:%.0f%%",
+             (double)env_temp_c, (double)env_humi_pct);
+  } else {
+    snprintf(buf, sizeof(buf), "T:--C H:--%%");
+  }
+  for (uint8_t i = 0; buf[i]; i++) oled_char(X0 + i * 6, 6, buf[i]);
 }

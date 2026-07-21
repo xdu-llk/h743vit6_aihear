@@ -23,7 +23,6 @@ static String last_alert = "";  /* HTTP alert state */
 static uint32_t last_alert_time = 0;
 static uint32_t pub_seq = 0, last_mqtt = 0, last_status = 0;
 static uint32_t boot_id = 0;
-static uint16_t qos1_pkt_id = 0;   /* rolling packet-id for QoS-1 publishes */
 
 /* ---- EEPROM ---- */
 static void save_wifi() {
@@ -76,66 +75,14 @@ static void handleSave() {
   } else server.send(400,"text/plain","ERR");
 }
 
-/* ── QoS‑1 publish (bypasses PubSubClient which only does QoS‑0) ── */
-static bool publish_qos1(const char *topic, const char *payload) {
+/* Keep all MQTT stream parsing inside PubSubClient. Reading PUBACK bytes
+ * directly here can consume an interleaved App command and corrupt the stream. */
+static bool publish_reliable(const char *topic, const char *payload, bool retain = false) {
   if (!mqtt.connected()) return false;
-
-  uint8_t  pkt[512];
-  uint16_t pos       = 0;
-  uint16_t topic_len = strlen(topic);
-  uint16_t payl_len  = strlen(payload);
-
-  /* fixed header: PUBLISH | QoS‑1 = 0x32 */
-  pkt[pos++] = 0x32;
-
-  /* remaining length: topic‑len(2) + topic + packet‑id(2) + payload */
-  uint16_t rl = 2 + topic_len + 2 + payl_len;
-  do {
-    uint8_t d = rl % 128; rl /= 128;
-    if (rl > 0) d |= 0x80;
-    pkt[pos++] = d;
-  } while (rl > 0);
-
-  /* topic */
-  pkt[pos++] = (topic_len >> 8) & 0xFF;
-  pkt[pos++] = topic_len & 0xFF;
-  memcpy(pkt + pos, topic, topic_len); pos += topic_len;
-
-  /* packet identifier (rolling, non‑zero) */
-  qos1_pkt_id++;
-  if (qos1_pkt_id == 0) qos1_pkt_id = 1;
-  uint16_t sent_id = qos1_pkt_id;
-  pkt[pos++] = (sent_id >> 8) & 0xFF;
-  pkt[pos++] = sent_id & 0xFF;
-
-  /* payload */
-  memcpy(pkt + pos, payload, payl_len); pos += payl_len;
-
-  wifi_client.write(pkt, pos);
-  wifi_client.flush();
-
-  /* wait for PUBACK (2 s timeout) */
-  uint32_t start = millis();
-  while (millis() - start < 2000) {
-    if (wifi_client.available() >= 4) {
-      uint8_t buf[4];
-      wifi_client.read(buf, 4);
-      if ((buf[0] & 0xF0) == 0x40) {                /* MQTTPUBACK */
-        uint16_t ack_id = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
-        if (ack_id == sent_id) return true;
-      }
-      /* not our PUBACK — byte order may be off; discard and keep waiting */
-    }
-    delay(10);
-  }
-  return false;  /* timeout — broker didn't ack */
-}
-
-/* ── QoS‑1 publish with one retry ── */
-static bool publish_reliable(const char *topic, const char *payload) {
-  if (publish_qos1(topic, payload)) return true;
-  delay(200);
-  return publish_qos1(topic, payload);  /* one retry */
+  if (mqtt.publish(topic, payload, retain)) return true;
+  mqtt.loop();
+  delay(50);
+  return mqtt.connected() && mqtt.publish(topic, payload, retain);
 }
 
 /* ── UART ── */
@@ -162,7 +109,10 @@ static void parse_command(const char *cmd) {
       ok=publish_reliable(alert_topic,json);
       ok=publish_reliable(t,sep+1)&&ok;  /* legacy topic for old App compat */
       if(strstr(sep+1,"baby_cry")||strstr(sep+1,"help")){last_alert=sep+1;last_alert_time=millis();}
-    } else ok=publish_reliable(t,sep+1);
+    } else {
+      bool retain = strstr(t, "/state") != nullptr;
+      ok=publish_reliable(t,sep+1,retain);
+    }
     if(!ok){Serial.println("+ERR:PUB_FAIL");return;}
     Serial.printf("+PUBACK:%lu\r\n",(unsigned long)pub_seq);
   }else if(strcmp(cmd,"+STATUS")==0)
@@ -179,8 +129,26 @@ static void publish_status() {
   mqtt.publish("aihear/status",mqtt_client_id,false);  /* legacy */
 }
 
+/* ── MQTT callback: forward App commands to STM32, filtered by device ID ── */
+static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+  if (strcmp(topic, "aihear/cmd") == 0) {
+    char buf[64];
+    unsigned int len = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
+    memcpy(buf, payload, len); buf[len] = '\0';
+    /* Only forward if device ID matches (or no device field = broadcast) */
+    const char *did = strstr(buf, "\"device\":\"");
+    if (did) {
+      did += 10;  /* skip "device":" */
+      if (strncmp(did, mqtt_client_id, strlen(mqtt_client_id)) != 0)
+        return;  /* not for this device — ignore */
+    }
+    Serial.printf("+CMD:%s\r\n", buf);
+  }
+}
+
 static void mqtt_reconnect() {
   mqtt.setServer("broker-cn.emqx.io",1883);
+  mqtt.setCallback(mqtt_callback);
   mqtt.connect(mqtt_client_id);
   if(mqtt.connected()) {
     mqtt.subscribe("aihear/cmd");

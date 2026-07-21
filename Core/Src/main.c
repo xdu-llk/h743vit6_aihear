@@ -105,12 +105,12 @@ int main(void)
   /* AXI SRAM cold-boot: clear all 512KB for ECC parity init */
   memset((void *)0x24000000, 0, 512 * 1024);
 
-  /* Boot watchdog: auto-retry if cold boot hangs (~1.5s) */
+  /* Boot watchdog: auto-retry if cold boot hangs (~3s) */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
   IWDG1->KR = 0x5555;
   IWDG1->PR = 5;
-  IWDG1->RLR = 375;
+  IWDG1->RLR = 1500;            /* 1500 / 500Hz = 3s */
   IWDG1->KR = 0xAAAA;
   IWDG1->KR = 0xCCCC;
   /* USER CODE END SysInit */
@@ -150,6 +150,7 @@ int main(void)
 
   printf("[MQTT] Waiting for ESP8266...\r\n");
   for (int t = 0; t < 40; t++) {
+    IWDG1->KR = 0xAAAA;  /* feed boot watchdog during ESP init */
     WifiIoT_QueryStatus();
     WifiIoT_Process();
     if (WifiIoT_IsReady()) break;

@@ -106,6 +106,24 @@ void AudioPreproc_FeedFrame(const int32_t *pcm_512)
   }
 }
 
+/* Slide window by discarding oldest n_frames from spec_acc.
+ * Call after Inference #1 to shift, then feed n_frames new frames for next inference.
+ * Example: Shift(20) keeps frames [20..95], sets frame_idx=76, needs 20 more to reach 96. */
+void AudioPreproc_Shift(int n_frames)
+{
+  if (!ready) return;
+  if (n_frames <= 0 || n_frames >= PREPROC_NUM_FRAMES) {
+    AudioPreproc_Reset();
+    return;
+  }
+  for (int m = 0; m < PREPROC_NUM_MELS; m++) {
+    memmove(&spec_acc[m][0], &spec_acc[m][n_frames],
+            (PREPROC_NUM_FRAMES - n_frames) * sizeof(float));
+  }
+  frame_idx = PREPROC_NUM_FRAMES - n_frames;
+  ready = false;
+}
+
 bool AudioPreproc_IsReady(void)
 {
   return ready;

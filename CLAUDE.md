@@ -177,7 +177,8 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 |------|------|------|
 | INMP441 | PE4(WS) PE5(SCK) PE6(SD) | I2S, VCC→3.3V, L/R→GND |
 | ESP8266 | PA1(RX) PA0(TX) | UART4, 交叉连接 |
-| OLED | PD0(SCL) PD1(SDA) | I2C bit-bang |
+| OLED | PB10(SCL) PB11(SDA) | hardware I2C2, 400kHz |
+| DHT11 | PD0(DATA) | single-wire, 3.3V |
 | RGB LED | PB4(R) PB5(G) PB8(B) | 各串220Ω |
 | 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
 | 按键 | PC4 → GND | 上拉输入 |
