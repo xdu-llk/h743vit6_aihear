@@ -638,8 +638,8 @@ function updateUI(){
 function refresh(){updateUI();loadStats();renderMonitorList();}
 function esc(s){var d=document.createElement('div');d.textContent=(s||'');return d.innerHTML;}
 
-var envHistory=[]; // {t,h,ts} ring buffer for stats
-var lastEnvSampleKey='';
+var envHistory={}; // per-device ring buffer: {deviceId -> [{t,h,ts},...]}
+var lastEnvSampleKey={};
 
 // ═══════════════ 远程控制 ═══════════════
 function sendCmd(cmd){
@@ -727,19 +727,22 @@ function pollEnv(){
   if(d.temp!=null&&d.humi!=null){
     document.getElementById('envDisplay').textContent=d.temp.toFixed(1)+'°C · '+Math.round(d.humi)+'% RH';
     var sampleKey=(d.deviceId||deviceId)+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
-    if(sampleKey===lastEnvSampleKey)return;
-    lastEnvSampleKey=sampleKey;
-    // track history (keep last 24h = 17280 readings @ 5s)
-    var now=Date.now();envHistory.push({t:d.temp,h:d.humi,ts:now});
+    if(sampleKey===(lastEnvSampleKey[deviceId]||''))return;
+    lastEnvSampleKey[deviceId]=sampleKey;
+    // per-device ring buffer (keep last 24h @ 5s = 17280 samples)
+    var buf=envHistory[deviceId]||[];
+    var now=Date.now();buf.push({t:d.temp,h:d.humi,ts:now});
     var cutoff=now-86400000;
-    while(envHistory.length&&envHistory[0].ts<cutoff)envHistory.shift();
-    if(envHistory.length>20000)envHistory.splice(0,envHistory.length-17280);
+    while(buf.length&&buf[0].ts<cutoff)buf.shift();
+    if(buf.length>20000)buf.splice(0,buf.length-17280);
+    envHistory[deviceId]=buf;
   }
 }
 function getEnvAvg(){
-  if(!envHistory.length)return null;
-  var st=0,sh=0,n=envHistory.length;
-  for(var i=0;i<n;i++){st+=envHistory[i].t;sh+=envHistory[i].h;}
+  var buf=envHistory[deviceId||'']||[];
+  if(!buf.length)return null;
+  var st=0,sh=0,n=buf.length;
+  for(var i=0;i<n;i++){st+=buf[i].t;sh+=buf[i].h;}
   return {temp:(st/n),humi:(sh/n)};
 }
 
