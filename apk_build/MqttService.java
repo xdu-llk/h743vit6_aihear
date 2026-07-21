@@ -337,6 +337,7 @@ public class MqttService extends Service {
                                         String id = DeviceRegistry.normalize(pub.payload);
                                         if (DeviceRegistry.contains(this, id))
                                             sDeviceLastSeen.put(id, System.currentTimeMillis());
+                                    }
                                 }
                                 break;
                             }
