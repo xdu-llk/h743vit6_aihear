@@ -313,6 +313,12 @@ public class AndroidBridge {
     }
 
     @JavascriptInterface
+    public void setMonitoredDevice(String deviceId, boolean monitorAll) {
+        MqttService.sMonitoredDevice = deviceId != null ? deviceId : "";
+        MqttService.sMonitorAll = monitorAll;
+    }
+
+    @JavascriptInterface
     public String getControlState(String deviceId) {
         return MqttService.getControlState(deviceId);
     }

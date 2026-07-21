@@ -99,6 +99,8 @@ public class MqttService extends Service {
 
     // ── MQTT publish support (write to socket from outside mqtt-thread) ──
     private static volatile OutputStream sOutput = null;
+    public  static volatile String sMonitoredDevice = "";  /* "" = all devices */
+    public  static volatile boolean sMonitorAll = false;
     /** Build MQTT PUBLISH packet (QoS=0) */
     private static byte[] buildPublish(String topic, String payload) {
         try {
@@ -740,6 +742,13 @@ public class MqttService extends Service {
             notifyJsListeners(fCls, fScore);
 
             if (!isAlert) return;
+
+            // 单设备模式：只通知当前监视的设备
+            if (!sMonitorAll && !sMonitoredDevice.isEmpty() &&
+                !sMonitoredDevice.equals(fDeviceId)) {
+                Log.d(TAG, fDeviceId + " 非当前监视设备，跳过系统通知");
+                return;
+            }
 
             // 防抖
             long previousAlertMs = lastAlertByDevice.containsKey(fDeviceId)

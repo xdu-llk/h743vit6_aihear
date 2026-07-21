@@ -422,6 +422,8 @@ function selectDevice(id){
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
   /* exit "monitor all" mode when manually selecting a device */
   if(monitorAll){monitorAll=false;updateMonitorAllBtn();}
+  /* tell service which device to monitor for notifications */
+  if(typeof Android!=='undefined')Android.setMonitoredDevice(deviceId,monitorAll);
   renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
   loadAlerts();loadStats();renderMonitorList();
   document.getElementById('aiResult').textContent='点击下方按钮开始分析';
@@ -467,6 +469,7 @@ function startService(){
 function stopService(){
   if(typeof Android!=='undefined'){try{Android.stopAlarm();Android.stopService();}catch(e){}}
   started=false;localStorage.removeItem('started');updateUI();
+  if(monitorAll){monitorAll=false;updateMonitorAllBtn();}  /* exit monitor-all when MQTT stops */
 }
 function showError(m){var e=document.getElementById('errMsg');e.textContent=m;e.style.display='block';setTimeout(function(){e.style.display='none'},4000);}
 function hideError(){document.getElementById('errMsg').style.display='none';}
@@ -502,7 +505,7 @@ function stopBeep(){
 function loadAlerts(){
   var list=document.getElementById('alertList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(monitorAll&&!deviceId?Android.getAlerts():
+  var data=JSON.parse(monitorAll?Android.getAlerts():
                       (deviceId?Android.getAlertsForDevice(deviceId):Android.getAlerts())||'[]');
   if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
   var h='';
@@ -718,7 +721,10 @@ function pollControlState(){
 
 var monitorAll=false;
 function toggleMonitorAll(){
+  if(!started){startService();return;}  /* auto-start MQTT first, then re-click will toggle */
   monitorAll=!monitorAll;
+  /* tell service: monitorAll → notify all bound devices; else → only selected device */
+  if(typeof Android!=='undefined')Android.setMonitoredDevice(monitorAll?'':deviceId,monitorAll);
   updateMonitorAllBtn();
   updateArmBtn(); updateMusicBtn();  /* arm/music disabled in monitorAll mode */
   loadAlerts();   /* refresh alert list with new scope */
