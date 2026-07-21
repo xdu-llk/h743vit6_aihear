@@ -79,10 +79,7 @@ static void handleSave() {
  * directly here can consume an interleaved App command and corrupt the stream. */
 static bool publish_reliable(const char *topic, const char *payload, bool retain = false) {
   if (!mqtt.connected()) return false;
-  if (mqtt.publish(topic, payload, retain)) return true;
-  mqtt.loop();
-  delay(50);
-  return mqtt.connected() && mqtt.publish(topic, payload, retain);
+  return mqtt.publish(topic, payload, retain);
 }
 
 /* ── UART ── */
@@ -119,7 +116,7 @@ static void parse_command(const char *cmd) {
     Serial.printf("+PUBACK:%lu\r\n",(unsigned long)pub_seq);
   }else if(strcmp(cmd,"+STATUS")==0)
     Serial.printf("+STATUS:%d:%d\r\n",(WiFi.status()==WL_CONNECTED)?2:0,mqtt.connected()?2:0);
-  else Serial.println("+ERR:UNKNOWN");
+  else Serial.printf(\"+ERR:UNKNOWN '%s'\r\n\",cmd);
 }
 
 static void publish_status() {
@@ -210,7 +207,7 @@ void loop() {
   /* UART read */
   while(Serial.available()){
     char c=Serial.read();
-    if(c=='\n'){if(rx_idx&&rx_buf[rx_idx-1]=='\r')rx_idx--;rx_buf[rx_idx]=0;parse_command(rx_buf);rx_idx=0;}
+    if(c=='\n'){if(rx_idx&&rx_buf[rx_idx-1]=='\r')rx_idx--;rx_buf[rx_idx]=0;if(rx_idx>0)parse_command(rx_buf);rx_idx=0;}
     else if(rx_idx<255) rx_buf[rx_idx++]=c;
   }
 

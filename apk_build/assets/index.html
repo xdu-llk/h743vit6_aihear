@@ -73,6 +73,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 .stxt{font-size:13px;font-weight:600}
 .stxt.ok{color:#28a745}
 .stxt.err{color:#dc3545}
+.stxt.meta{font-size:11px;font-weight:400;color:#999}
 .dev{font-size:11px;color:#B8A9A5}
 .btn-toggle{background:#F2A0A0;color:#fff;border:none;padding:10px 20px;border-radius:20px;
   font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
@@ -172,16 +173,12 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
 .environment-row{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-bottom:1px solid var(--line)}
 .environment-row .label{font-size:11px;color:var(--muted)}
 .environment-row strong{font-size:16px;color:var(--amber);font-weight:750}
-.control-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}
-.control-btn{height:42px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer;min-width:0}
+.control-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:10px 12px}
+.control-btn{height:42px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer}
 .control-btn.arm{background:var(--teal-soft);border-color:#b8ddd5;color:#116b62}
+.control-btn.disarm{background:#fceaea;border-color:#efc5c5;color:#b54141}
 .control-btn.music{background:var(--blue-soft);border-color:#c7d5f1;color:#2859ad}
-.control-btn.monitor{background:#f1f3f2;color:#4d5a57}
 .control-btn:disabled{opacity:.62;cursor:default}
-.bulk-row{display:grid;grid-template-columns:minmax(76px,1fr) 1fr 1fr;gap:8px;align-items:center;padding:10px 12px;border-top:1px solid var(--line);background:#fafbfb}
-.bulk-row span{font-size:11px;color:var(--muted)}
-.bulk-btn{height:34px;border-radius:6px;font-size:11px;font-weight:650;background:#fff;cursor:pointer}
-.bulk-btn.arm{border:1px solid #b8ddd5;color:#116b62}.bulk-btn.disarm{border:1px solid #efc5c5;color:#b54141}
 
 .monitor-toolbar{margin:2px 0 8px}.monitor-toolbar h3{font-size:14px;color:var(--ink)}
 .monitor-toolbar span{color:var(--muted)}
@@ -237,8 +234,7 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
 
 @media (max-width:360px){
   .tab-pane{padding-left:10px;padding-right:10px}
-  .control-grid{gap:6px;padding:10px}.control-btn{font-size:11px}
-  .bulk-row{grid-template-columns:68px 1fr 1fr;gap:6px;padding:9px 10px}
+  .control-grid{gap:4px;padding:8px 10px}.control-btn{font-size:11px;height:38px}
   .btn-toggle{min-width:76px;padding-left:9px;padding-right:9px}
 }
 </style>
@@ -282,6 +278,7 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
         <span class="mqtt-dot off" id="mqttDot"></span>
         <div>
           <div class="stxt err" id="mqttLabel">MQTT 未连接</div>
+          <div class="stxt meta" id="mqttMeta">监视 0 台 · 收到 0 条</div>
           <div class="dev" id="deviceInfo">未绑定设备</div>
         </div>
       </div>
@@ -292,12 +289,8 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
       <div class="control-grid">
         <button id="btnArm" class="control-btn arm" onclick="toggleArm()">布防</button>
         <button id="btnMusic" class="control-btn music" onclick="toggleMusic()">播放音乐</button>
-        <button id="btnMonitorAll" class="control-btn monitor" onclick="toggleMonitorAll()">全部监视</button>
-      </div>
-      <div class="bulk-row">
-        <span>全部设备</span>
-        <button class="bulk-btn arm" onclick="sendCmdAll('arm')">一键布防</button>
-        <button class="bulk-btn disarm" onclick="sendCmdAll('disarm')">一键撤防</button>
+        <button class="control-btn arm" onclick="sendCmdAll('arm')">一键布防</button>
+        <button class="control-btn disarm" onclick="sendCmdAll('disarm')">一键撤防</button>
       </div>
     </div>
     <div class="monitor-toolbar"><div><h3 style="display:inline">设备总览</h3><span id="monitorCount">0台</span></div><button class="monitor-add" onclick="showBind()" title="管理设备">＋</button></div>
@@ -376,7 +369,7 @@ function initBind(){
     try{devices=JSON.parse(localStorage.getItem('bound_devices')||'[]');}catch(e){devices=[];}
     if(old&&devices.indexOf(old)<0)devices.push(old);
   }
-  devices=devices.map(normalizeDeviceId).filter(function(v,i,a){return v&&a.indexOf(v)===i;}).sort();
+  devices=devices.map(normalizeDeviceId).filter(function(v,i,a){return v&&a.indexOf(v)===i;});
   deviceId=normalizeDeviceId(localStorage.getItem('selected_device')||'');
   if(devices.indexOf(deviceId)<0)deviceId=devices[0]||'';
   if(deviceId)localStorage.setItem('selected_device',deviceId);
@@ -420,10 +413,6 @@ function showBind(){document.getElementById('bindDeviceId').value='';document.ge
 function selectDevice(id){
   id=normalizeDeviceId(id);if(!id||devices.indexOf(id)<0)return;
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
-  /* exit "monitor all" mode when manually selecting a device */
-  if(monitorAll){monitorAll=false;updateMonitorAllBtn();}
-  /* tell service which device to monitor for notifications */
-  if(typeof Android!=='undefined')Android.setMonitoredDevice(deviceId,monitorAll);
   renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
   loadAlerts();loadStats();renderMonitorList();
   document.getElementById('aiResult').textContent='点击下方按钮开始分析';
@@ -436,7 +425,7 @@ function doBind(){
   if(!id){alert('设备 ID 格式应为 aihear_ 加 6 位十六进制字符');return;}
   if(typeof Android!=='undefined'&&!Android.addBoundDevice(id)){alert('绑定失败');return;}
   if(typeof Android!=='undefined'&&alias)Android.setDeviceAlias(id,alias);
-  if(devices.indexOf(id)<0)devices.push(id);devices.sort();persistFallbackDevices();
+  if(devices.indexOf(id)<0)devices.unshift(id);persistFallbackDevices();
   document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';selectDevice(id);
 }
 function removeDevice(id){
@@ -445,7 +434,7 @@ function removeDevice(id){
     if(!Android.removeBoundDevice(id)){showError('设备移除失败');return;}
     try{devices=JSON.parse(Android.getBoundDevices()||'[]');}catch(e){showError('设备列表刷新失败');return;}
   }else devices=devices.filter(function(v){return v!==id;});
-  devices=devices.map(normalizeDeviceId).filter(Boolean).sort();persistFallbackDevices();
+  devices=devices.map(normalizeDeviceId).filter(Boolean);persistFallbackDevices();
   if(deviceId===id){
     deviceId=devices[0]||'';
     if(deviceId){localStorage.setItem('selected_device',deviceId);localStorage.setItem('device_id',deviceId);}
@@ -463,13 +452,16 @@ function startService(){
   hideError();
   if(typeof Android!=='undefined'){
     try{Android.startService();}catch(e){showError('启动失败: '+e);return;}
+    Android.setMonitoredDevice('',true);  /* monitor all bound devices */
   }
   started=true;localStorage.setItem('started','1');updateUI();
 }
 function stopService(){
-  if(typeof Android!=='undefined'){try{Android.stopAlarm();Android.stopService();}catch(e){}}
+  if(typeof Android!=='undefined'){
+    try{Android.stopAlarm();Android.stopService();}catch(e){}
+    Android.setMonitoredDevice('',false);
+  }
   started=false;localStorage.removeItem('started');updateUI();
-  if(monitorAll){monitorAll=false;updateMonitorAllBtn();}  /* exit monitor-all when MQTT stops */
 }
 function showError(m){var e=document.getElementById('errMsg');e.textContent=m;e.style.display='block';setTimeout(function(){e.style.display='none'},4000);}
 function hideError(){document.getElementById('errMsg').style.display='none';}
@@ -505,8 +497,7 @@ function stopBeep(){
 function loadAlerts(){
   var list=document.getElementById('alertList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(monitorAll?Android.getAlerts():
-                      (deviceId?Android.getAlertsForDevice(deviceId):Android.getAlerts())||'[]');
+  var data=JSON.parse(deviceId?Android.getAlertsForDevice(deviceId):Android.getAlerts()||'[]');
   if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
@@ -519,7 +510,7 @@ function loadAlerts(){
   list.innerHTML=h;
 }
 function delAlert(id){if(typeof Android!=='undefined')Android.deleteAlert(id);loadAlerts();}
-function clearAlerts(){var label=monitorAll?'全部设备':(deviceId||'所有');if(!confirm('确定清空 '+label+' 的告警？'))return;if(typeof Android!=='undefined'){if(monitorAll)Android.clearAlerts();else Android.clearAlertsForDevice(deviceId);}loadAlerts();}
+function clearAlerts(){if(!confirm('确定清空 '+(deviceId||'所有')+' 的告警？'))return;if(typeof Android!=='undefined')Android.clearAlertsForDevice(deviceId);loadAlerts();}
 
 function formatAgo(ts){
   if(!ts)return'未上报';var sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -592,9 +583,9 @@ function pollMqtt(){
   var dot=document.getElementById('mqttDot'),label=document.getElementById('mqttLabel');
   dot.className='mqtt-dot '+(s===2?'on':s===1?'mid':'off');
   var mc=Android.getMsgCount();
-  if(s===2){label.textContent='🟢 MQTT 已连接 · 监视'+devices.length+'台 · 收到'+mc+'条';label.className='stxt ok';}
-  else if(s===1){label.textContent='🟡 MQTT 连接中...';label.className='stxt err';}
-  else{label.textContent='🔴 MQTT 未连接';label.className='stxt err';}
+  if(s===2){label.textContent='🟢 MQTT 已连接';label.className='stxt ok';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 '+mc+' 条';}
+  else if(s===1){label.textContent='🟡 MQTT 连接中...';label.className='stxt err';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 '+mc+' 条';}
+  else{label.textContent='🔴 MQTT 未连接';label.className='stxt err';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 0 条';}
   if(deviceId){
     var seen=Android.getDeviceLastSeen(deviceId),suffix=seen&&Date.now()-seen<90000?' · 在线':' · 未上报';
     document.getElementById('deviceInfo').textContent=deviceAlias(deviceId)+' · '+deviceId+suffix;
@@ -672,7 +663,7 @@ var controlStates={};
 function currentControlState(){return controlStates[deviceId]||null;}
 
 function toggleArm(){
-  if(monitorAll){showError('请先切换到单个设备再执行布防/撤防');return;}
+  
   var s=currentControlState();
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.armed?'disarm':'arm')){
@@ -682,7 +673,6 @@ function toggleArm(){
 }
 function updateArmBtn(){
   var b=document.getElementById('btnArm'),s=currentControlState();
-  if(monitorAll){b.textContent='切换设备后可用';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   b.disabled=false;
   if(s.armed){b.textContent='撤防';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
@@ -690,7 +680,7 @@ function updateArmBtn(){
 }
 
 function toggleMusic(){
-  if(monitorAll){showError('请先切换到单个设备再操作音乐');return;}
+  
   var s=currentControlState();
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.music?'stop_music':'play_music')){
@@ -700,7 +690,6 @@ function toggleMusic(){
 }
 function updateMusicBtn(){
   var b=document.getElementById('btnMusic'),s=currentControlState();
-  if(monitorAll){b.textContent='切换设备后可用';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   b.disabled=false;
   if(s.music){b.textContent='播放中';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
@@ -719,24 +708,6 @@ function pollControlState(){
   updateArmBtn();updateMusicBtn();
 }
 
-var monitorAll=false;
-function toggleMonitorAll(){
-  if(!started){startService();return;}  /* auto-start MQTT first, then re-click will toggle */
-  monitorAll=!monitorAll;
-  /* tell service: monitorAll → notify all bound devices; else → only selected device */
-  if(typeof Android!=='undefined')Android.setMonitoredDevice(monitorAll?'':deviceId,monitorAll);
-  updateMonitorAllBtn();
-  updateArmBtn(); updateMusicBtn();  /* arm/music disabled in monitorAll mode */
-  loadAlerts();   /* refresh alert list with new scope */
-  loadStats();    /* refresh stats (all devices vs selected) */
-}
-function selectDeviceSilent(id){var prev=deviceId;deviceId=id;localStorage.setItem('selected_device',id);}
-function updateMonitorAllBtn(){
-  var b=document.getElementById('btnMonitorAll');
-  if(monitorAll){b.textContent='全部停止';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
-  else{b.textContent='全部监视';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#4d5a57';}
-}
-
 function pollEnv(){
   if(typeof Android==='undefined'||!deviceId)return;
   try{var d=JSON.parse(Android.getEnvData(deviceId)||'{}');}
@@ -753,6 +724,8 @@ function pollEnv(){
     while(buf.length&&buf[0].ts<cutoff)buf.shift();
     if(buf.length>20000)buf.splice(0,buf.length-17280);
     envHistory[deviceId]=buf;
+  }else{
+    document.getElementById('envDisplay').textContent='--°C · --% RH';
   }
 }
 function getEnvAvg(){
@@ -766,7 +739,7 @@ function getEnvAvg(){
 // ═══════════════ 轮询 ═══════════════
 setInterval(function(){pollMqtt();pollEnv();if(started)loadStats();
   if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();
-  updateArmBtn();updateMusicBtn();updateMonitorAllBtn();
+  updateArmBtn();updateMusicBtn();
 },5000);
 setInterval(pollControlState,1000);
 
