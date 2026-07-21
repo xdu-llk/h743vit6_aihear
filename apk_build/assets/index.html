@@ -393,9 +393,11 @@ function deviceAlias(id){
   return id;
 }
 function renderDeviceList(){
-  loadDeviceSummaries();
+  var summaries=loadDeviceSummaries();
+  var lookup={};summaries.forEach(function(s){lookup[s.deviceId]=s.lastSeen||0;});
+  var sorted=devices.slice().sort(function(a,b){return lookup[b]-lookup[a];});
   var box=document.getElementById('boundDeviceList'),h='';
-  devices.forEach(function(id){
+  sorted.forEach(function(id){
     h+='<div class="device-row"><button class="device-choice'+(id===deviceId?' selected':'')+'" onclick="selectDevice(\''+id+'\')">'+
       esc(deviceAlias(id))+' · '+esc(id)+(id===deviceId?' · 当前':'')+'</button><button class="device-remove" aria-label="移除设备" onclick="removeDevice(\''+id+'\')">×</button></div>';
   });
