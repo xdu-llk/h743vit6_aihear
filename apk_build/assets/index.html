@@ -420,9 +420,13 @@ function showBind(){document.getElementById('bindDeviceId').value='';document.ge
 function selectDevice(id){
   id=normalizeDeviceId(id);if(!id||devices.indexOf(id)<0)return;
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
+  /* exit "monitor all" mode when manually selecting a device */
+  if(monitorAll){monitorAll=false;updateMonitorAllBtn();}
   renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
   loadAlerts();loadStats();renderMonitorList();
   document.getElementById('aiResult').textContent='点击下方按钮开始分析';
+  /* immediately refresh per-device display */
+  updateArmBtn();updateMusicBtn();pollEnv();
 }
 function doBind(){
   var id=normalizeDeviceId(document.getElementById('bindDeviceId').value);
@@ -665,14 +669,17 @@ var controlStates={};
 function currentControlState(){return controlStates[deviceId]||null;}
 
 function toggleArm(){
+  if(monitorAll){showError('请先切换到单个设备再执行布防/撤防');return;}
   var s=currentControlState();
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.armed?'disarm':'arm')){
     var b=document.getElementById('btnArm');b.disabled=true;b.textContent='执行中';
+    setTimeout(function(){if(b.disabled)updateArmBtn();},3000);
   }
 }
 function updateArmBtn(){
   var b=document.getElementById('btnArm'),s=currentControlState();
+  if(monitorAll){b.textContent='切换设备后可用';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   b.disabled=false;
   if(s.armed){b.textContent='撤防';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
@@ -680,14 +687,17 @@ function updateArmBtn(){
 }
 
 function toggleMusic(){
+  if(monitorAll){showError('请先切换到单个设备再操作音乐');return;}
   var s=currentControlState();
   if(!s){showError('正在等待设备状态');return;}
   if(sendCmd(s.music?'stop_music':'play_music')){
     var b=document.getElementById('btnMusic');b.disabled=true;b.textContent='执行中';
+    setTimeout(function(){if(b.disabled)updateMusicBtn();},3000);
   }
 }
 function updateMusicBtn(){
   var b=document.getElementById('btnMusic'),s=currentControlState();
+  if(monitorAll){b.textContent='切换设备后可用';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
   b.disabled=false;
   if(s.music){b.textContent='播放中';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
@@ -710,6 +720,7 @@ var monitorAll=false;
 function toggleMonitorAll(){
   monitorAll=!monitorAll;
   updateMonitorAllBtn();
+  updateArmBtn(); updateMusicBtn();  /* arm/music disabled in monitorAll mode */
   loadAlerts();   /* refresh alert list with new scope */
   loadStats();    /* refresh stats (all devices vs selected) */
 }
