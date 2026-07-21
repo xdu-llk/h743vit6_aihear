@@ -123,7 +123,7 @@ static void vAudioInferTask(void *pvParameters)
        *   ≥90% → instant alert
        *   60-90% → slide 0.2s, 2 more inferences, avg ≥ 80% → alert
        *   <60% → skip */
-      if (prob_cry >= 0.88f) {
+      if (prob_cry >= 0.90f) {
         /* Tier 1: high confidence → immediate alert */
         printf("\r\n[DETECT] %s p=%.0f%% pk=%lu (instant)\r\n",
                names[0], (double)(prob_cry * 100), peak);
@@ -158,7 +158,7 @@ static void vAudioInferTask(void *pvParameters)
         printf("\r\n[VOTE] p1=%.0f%% p2=%.0f%% p3=%.0f%% avg=%.0f%% pk=%lu\r\n",
                (double)(probs[0]*100), (double)(probs[1]*100), (double)(probs[2]*100),
                (double)(avg*100), peak);
-        if (avg >= 0.78f) {
+        if (avg >= 0.80f) {
           printf("\r\n[DETECT] %s avg=%.0f%% (voted)\r\n", names[0], (double)(avg*100));
           OLED_ShowStatus("ALERT!", names[0], dbfs);
           Alarm_SetState(ALARM_STATE_ALERT);
@@ -276,7 +276,11 @@ static void vAudioInferTask(void *pvParameters)
     if ((xTaskGetTickCount() - last_heartbeat) >= pdMS_TO_TICKS(30000)) {
       last_heartbeat = xTaskGetTickCount();
       const char *devid = WifiIoT_GetDeviceId();
-      if (devid && WifiIoT_IsReady()) WifiIoT_Publish("aihear/status", devid);
+      if (devid && WifiIoT_IsReady()) {
+        char topic[64];
+        snprintf(topic, sizeof(topic), "aihear/v1/demo/%s/status", devid);
+        WifiIoT_Publish(topic, devid);
+      }
     }
   }
 }

@@ -18,7 +18,7 @@ static ESP8266WebServer server(80);
 static char          rx_buf[256];
 static uint8_t       rx_idx = 0;
 static char ssid[33] = "", pass[33] = "";
-static char mqtt_client_id[32], alert_topic[64], status_topic[64];
+static char mqtt_client_id[32], alert_topic[64], status_topic[64], env_topic[64];
 static String last_alert = "";  /* HTTP alert state */
 static uint32_t last_alert_time = 0;
 static uint32_t pub_seq = 0, last_mqtt = 0, last_status = 0;
@@ -107,8 +107,10 @@ static void parse_command(const char *cmd) {
         mqtt_client_id,(unsigned long)boot_id,(unsigned long)pub_seq,cls,
         (double)score,(unsigned long)millis());
       ok=publish_reliable(alert_topic,json);
-      ok=publish_reliable(t,sep+1)&&ok;  /* legacy topic for old App compat */
       if(strstr(sep+1,"baby_cry")||strstr(sep+1,"help")){last_alert=sep+1;last_alert_time=millis();}
+    } else if(strcmp(t,"aihear/env")==0){
+      /* env data → device‑scoped topic only, no global broadcast */
+      ok=publish_reliable(env_topic,sep+1,false);
     } else {
       bool retain = strstr(t, "/state") != nullptr;
       ok=publish_reliable(t,sep+1,retain);
@@ -126,7 +128,6 @@ static void publish_status() {
     "{\"deviceId\":\"%s\",\"online\":true,\"uptimeMs\":%lu,\"seq\":%lu,\"fw\":\"bridge-v4\"}",
     mqtt_client_id,(unsigned long)millis(),(unsigned long)pub_seq);
   mqtt.publish(status_topic,json,false);
-  mqtt.publish("aihear/status",mqtt_client_id,false);  /* legacy */
 }
 
 /* ── MQTT callback: forward App commands to STM32, filtered by device ID ── */
@@ -135,13 +136,12 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     char buf[64];
     unsigned int len = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
     memcpy(buf, payload, len); buf[len] = '\0';
-    /* Only forward if device ID matches (or no device field = broadcast) */
+    /* Only forward if device ID matches exactly — never accept broadcasts */
     const char *did = strstr(buf, "\"device\":\"");
-    if (did) {
-      did += 10;  /* skip "device":" */
-      if (strncmp(did, mqtt_client_id, strlen(mqtt_client_id)) != 0)
-        return;  /* not for this device — ignore */
-    }
+    if (!did) return;                             /* no device field → reject */
+    did += 10;  /* skip "device":" */
+    if (strncmp(did, mqtt_client_id, strlen(mqtt_client_id)) != 0)
+      return;  /* not for this device — ignore */
     Serial.printf("+CMD:%s\r\n", buf);
   }
 }
@@ -165,6 +165,7 @@ void setup() {
   snprintf(mqtt_client_id,sizeof(mqtt_client_id),"aihear_%02x%02x%02x",mac[3],mac[4],mac[5]);
   snprintf(alert_topic,sizeof(alert_topic),"aihear/v1/demo/%s/alert",mqtt_client_id);
   snprintf(status_topic,sizeof(status_topic),"aihear/v1/demo/%s/status",mqtt_client_id);
+  snprintf(env_topic,   sizeof(env_topic),   "aihear/v1/demo/%s/env",   mqtt_client_id);
   boot_id=ESP.getChipId()^micros()^ESP.getCycleCount();
   Serial.printf("+DEVICEID:%s\r\n",mqtt_client_id);
 

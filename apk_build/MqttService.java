@@ -52,7 +52,7 @@ public class MqttService extends Service {
     private static final String TOPIC_STATUS_FILTER = "aihear/v1/demo/+/status";
     private static final String TOPIC_LEGACY_DEVICE_ALERT_FILTER = "aihear/+/alert";
     private static final String TOPIC_LEGACY_STATUS = "aihear/status";
-    private static final String TOPIC_ENV           = "aihear/env";
+    private static final String TOPIC_ENV_FILTER    = "aihear/v1/demo/+/env";
     private static final String TOPIC_STATE_FILTER  = "aihear/v1/demo/+/state";
     private static final String TOPIC_CMD           = "aihear/cmd";
     private static final String PREFS_NAME = "aihear_mqtt";
@@ -89,6 +89,8 @@ public class MqttService extends Service {
         new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> sDeviceControlState =
         new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> sDeviceEnv =
+        new ConcurrentHashMap<>();
 
     // ── 对外可读状态 ──
     String lastAlertClass = "";
@@ -97,8 +99,6 @@ public class MqttService extends Service {
 
     // ── MQTT publish support (write to socket from outside mqtt-thread) ──
     private static volatile OutputStream sOutput = null;
-    public static volatile String sLastEnv = "{}";  // latest T/H JSON
-
     /** Build MQTT PUBLISH packet (QoS=0) */
     private static byte[] buildPublish(String topic, String payload) {
         try {
@@ -138,6 +138,12 @@ public class MqttService extends Service {
         if (deviceId == null) return "{}";
         String state = sDeviceControlState.get(DeviceRegistry.normalize(deviceId));
         return state == null ? "{}" : state;
+    }
+
+    public static String getEnvData(String deviceId) {
+        if (deviceId == null) return "{}";
+        String env = sDeviceEnv.get(DeviceRegistry.normalize(deviceId));
+        return env == null ? "{}" : env;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -258,7 +264,7 @@ public class MqttService extends Service {
                         !subscribeTopic(in, out, TOPIC_STATUS_FILTER, 2) ||
                         !subscribeTopic(in, out, TOPIC_LEGACY_DEVICE_ALERT_FILTER, 3) ||
                         !subscribeTopic(in, out, TOPIC_LEGACY_STATUS, 4) ||
-                        !subscribeTopic(in, out, TOPIC_ENV, 5) ||
+                        !subscribeTopic(in, out, TOPIC_ENV_FILTER, 5) ||
                         !subscribeTopic(in, out, TOPIC_STATE_FILTER, 6)) {
                         sock.close();
                         backoff = backoff(backoff, maxBackoff);
@@ -310,6 +316,7 @@ public class MqttService extends Service {
                                     String alertDevice = deviceIdFromTopic(pub.topic, "alert");
                                     String statusDevice = deviceIdFromTopic(pub.topic, "status");
                                     String stateDevice = deviceIdFromTopic(pub.topic, "state");
+                                    String envDevice = deviceIdFromTopic(pub.topic, "env");
                                     String legacyAlertDevice = deviceIdFromLegacyTopic(pub.topic);
                                     if (alertDevice != null && DeviceRegistry.contains(this, alertDevice)) {
                                         handleAlert(alertDevice, pub.topic, pub.payload);
@@ -323,13 +330,13 @@ public class MqttService extends Service {
                                     } else if (legacyAlertDevice != null &&
                                                DeviceRegistry.contains(this, legacyAlertDevice)) {
                                         handleAlert(legacyAlertDevice, pub.topic, pub.payload);
+                                    } else if (envDevice != null && DeviceRegistry.contains(this, envDevice)) {
+                                        sDeviceEnv.put(envDevice, pub.payload);
+                                        sDeviceLastSeen.put(envDevice, System.currentTimeMillis());
                                     } else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
                                         String id = DeviceRegistry.normalize(pub.payload);
                                         if (DeviceRegistry.contains(this, id))
                                             sDeviceLastSeen.put(id, System.currentTimeMillis());
-                                    } else if (TOPIC_ENV.equals(pub.topic)) {
-                                        sLastEnv = pub.payload;  // store latest T/H
-                                    }
                                 }
                                 break;
                             }

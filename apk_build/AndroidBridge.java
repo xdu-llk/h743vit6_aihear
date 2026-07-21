@@ -308,8 +308,8 @@ public class AndroidBridge {
     }
 
     @JavascriptInterface
-    public String getEnvData() {
-        return MqttService.sLastEnv;
+    public String getEnvData(String deviceId) {
+        return MqttService.getEnvData(deviceId != null ? deviceId : "");
     }
 
     @JavascriptInterface

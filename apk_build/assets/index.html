@@ -498,7 +498,8 @@ function stopBeep(){
 function loadAlerts(){
   var list=document.getElementById('alertList');
   if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(Android.getAlertsForDevice(deviceId)||'[]');
+  var data=JSON.parse(monitorAll&&!deviceId?Android.getAlerts():
+                      (deviceId?Android.getAlertsForDevice(deviceId):Android.getAlerts())||'[]');
   if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
@@ -511,7 +512,7 @@ function loadAlerts(){
   list.innerHTML=h;
 }
 function delAlert(id){if(typeof Android!=='undefined')Android.deleteAlert(id);loadAlerts();}
-function clearAlerts(){if(!confirm('确定清空 '+deviceId+' 的告警？'))return;if(typeof Android!=='undefined')Android.clearAlertsForDevice(deviceId);loadAlerts();}
+function clearAlerts(){var label=monitorAll?'全部设备':(deviceId||'所有');if(!confirm('确定清空 '+label+' 的告警？'))return;if(typeof Android!=='undefined'){if(monitorAll)Android.clearAlerts();else Android.clearAlertsForDevice(deviceId);}loadAlerts();}
 
 function formatAgo(ts){
   if(!ts)return'未上报';var sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -650,9 +651,14 @@ function sendCmd(cmd){
 }
 function sendCmdAll(cmd){
   if(typeof Android==='undefined'){showError('控制桥接不可用');return false;}
-  var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'"}');
-  if(!ok)showError('MQTT 未连接，一键命令发送失败');
-  return ok;
+  if(!devices||!devices.length){showError('没有已绑定设备');return false;}
+  var allOk=true;
+  devices.forEach(function(id){
+    var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'","device":"'+id+'"}');
+    if(!ok)allOk=false;
+  });
+  if(!allOk)showError('部分设备命令发送失败');
+  return allOk;
 }
 
 var controlStates={};
@@ -702,14 +708,10 @@ function pollControlState(){
 
 var monitorAll=false;
 function toggleMonitorAll(){
-  if(monitorAll){
-    devices.forEach(function(id){selectDeviceSilent(id);Android.stopService();});
-    monitorAll=false;
-  }else{
-    devices.forEach(function(id){selectDeviceSilent(id);Android.startService();});
-    monitorAll=true;
-  }
+  monitorAll=!monitorAll;
   updateMonitorAllBtn();
+  loadAlerts();   /* refresh alert list with new scope */
+  loadStats();    /* refresh stats (all devices vs selected) */
 }
 function selectDeviceSilent(id){var prev=deviceId;deviceId=id;localStorage.setItem('selected_device',id);}
 function updateMonitorAllBtn(){
@@ -719,12 +721,12 @@ function updateMonitorAllBtn(){
 }
 
 function pollEnv(){
-  if(typeof Android==='undefined')return;
-  try{var d=JSON.parse(Android.getEnvData()||'{}');}
+  if(typeof Android==='undefined'||!deviceId)return;
+  try{var d=JSON.parse(Android.getEnvData(deviceId)||'{}');}
   catch(e){var d={};}
   if(d.temp!=null&&d.humi!=null){
     document.getElementById('envDisplay').textContent=d.temp.toFixed(1)+'°C · '+Math.round(d.humi)+'% RH';
-    var sampleKey=(d.deviceId||'')+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
+    var sampleKey=(d.deviceId||deviceId)+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
     if(sampleKey===lastEnvSampleKey)return;
     lastEnvSampleKey=sampleKey;
     // track history (keep last 24h = 17280 readings @ 5s)
