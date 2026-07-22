@@ -1,6 +1,6 @@
 # AI Hear — 基于STM32H7的边缘AI语音识别居家安防物联网预警系统
 
-> 当前实现：婴儿哭声实时检测 | 全国大学生嵌入式芯片与设计大赛作品
+> 当前实现：婴儿哭声实时检测 + 温湿度环境监护 | 全国大学生嵌入式芯片与设计大赛作品
 >
 > **⚠️ AI 助手说明：请完整阅读本文档后再动手，项目的架构、引脚、构建命令全在这里。每次修改代码后提醒用户 git commit。**
 
@@ -8,7 +8,7 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | ✅ 完成 | HSE=8MHz, PLL→480MHz, 2分类 DS-CNN |
+| STM32 固件 | ✅ 完成 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 DS-CNN, 温湿度告警 |
 | ESP8266 | ✅ 完成 | broker-cn.emqx.io, 已知问题: STM32复位后偶发连不上需拔插3.3V |
 | Android App | ✅ 完成 | 4Tab, MQTT, SQLite, WakeLock |
 | 训练管线 | ✅ 完成 | 99.67% val_acc, INT8量化 |
@@ -44,13 +44,13 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=8MHz, M=1/N=60/P=1)、MPU、IWDG |
+| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG (boot 1.5s + run 8s) |
 | `Core/Src/freertos.c` | 主任务调度 | 单任务+vTaskNotifyGiveFromISR唤醒、margin多级阈值、MQTT payload带置信度 |
 | `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲、Cache一致性(SCB_InvalidateDCache)、24bit I2S解码 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | 单字节UART中断+环形缓冲+行解析、+PUB协议 |
-| `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
+| `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动6状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY/ENV_ALERT) |
 | `Core/Src/dscnn_model.cc` | 模型权重 | DS-CNN float32 C数组(275KB) |
 
 ### 内存布局
@@ -63,12 +63,21 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 
 ### 告警逻辑
 
+**婴儿哭声 — 3级动态推理**:
 ```
-margin = |scores[0] - scores[1]|
-margin >= 0.8 → ALERT (蜂鸣器+MQTT发布baby_cry:0.95 + 5s冷却)
-margin >= 0.5 → MAYBE (仅printf)
-margin <  0.5 → WEAK
-top == 1     → NORMAL
+prob_cry = softmax(scores)[0]
+prob >= 90% → 即时ALERT (蜂鸣器+RGB+OLED+MQTT, 20s冷却)
+60% ≤ prob < 90% → 滑动投票: 0.2s后补推2次, 3次平均≥80% → ALERT
+prob < 60% → NORMAL (跳过)
+```
+
+**温湿度 — 阈值告警 (撤防时跳过)**:
+```
+temp > 30°C → temp_high (RGB红灯, 蜂鸣器不响, 5min冷却)
+temp < 16°C → temp_low
+humi > 80%  → humi_high
+humi < 30%  → humi_low
+婴儿哭优先级高于温湿度 — 哭告警时env不覆盖LED状态
 ```
 
 ---
@@ -108,7 +117,7 @@ AlertDbHelper.java (SQLite: alerts + feeding 双表)
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1通信、WakeLock息屏保活、10s通知冷却+10min入库去重 |
+| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1通信、WakeLock息屏保活、20s哭/5min温湿度通知冷却+10min入库去重、env_hourly聚合 |
 | `AlertDbHelper.java` | SQLite持久化 | 双表+时间索引、直接返回JSONArray |
 | `AndroidBridge.java` | JS桥接 | WeakReference防泄漏、try-catch全包裹、双向通信 |
 | `MainActivity.java` | Activity容器 | 全屏沉浸、通知权限适配、WebView安全配置 |
@@ -120,16 +129,16 @@ AlertDbHelper.java (SQLite: alerts + feeding 双表)
 |-----|------|
 | 🚨 告警(首页) | MQTT状态+消息计数、设备信息、启停按钮、告警记录列表 |
 | 🍼 喂养 | 喂养时间+备注记录、历史列表 |
-| 📊 统计 | 今日/本周计数、7天柱状图 |
+| 📊 统计 | Chart.js 双折线图: 7天哭声+喂养 / 24h温湿度(双Y轴+横向滚动) |
 | 🤖 AI分析 | DeepSeek API聚合分析哭声+喂养规律 |
 
 ### 去重策略
 
-| 层级 | 冷却 | 作用 |
-|------|------|------|
-| STM32 | 5秒 | 推理出告警后暂不发MQTT |
-| Android通知 | 10秒 | 弹窗+震动不重复 |
-| Android入库 | 10分钟 | SQLite同类告警只记一次 |
+| 层级 | 婴儿哭冷却 | 温湿度冷却 | 作用 |
+|------|:--:|:--:|------|
+| STM32 | 20s | 5min (4路独立) | 推理/采集后暂不发MQTT |
+| Android通知 | 20s | 5min (per-device+class) | 弹窗+震动不重复 |
+| Android入库 | 10min | 10min | SQLite同类告警只记一次 |
 
 ### 构建
 
@@ -166,8 +175,14 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 
 | 端 | Broker | Topic |
 |----|--------|-------|
-| ESP8266 | broker-cn.emqx.io:1883 | 发布 aihear/alert, aihear/status |
-| Android | broker-cn.emqx.io:1883 | 订阅 aihear/alert |
+| ESP8266 | broker-cn.emqx.io:1883 | 发布 `aihear/v1/demo/{id}/alert`, `…/status`, `…/env`, `…/state` |
+| Android | broker-cn.emqx.io:1883 | 订阅所有设备级 topic + `aihear/cmd` (命令下发) |
+
+**MQTT Payload 格式**:
+- 婴儿哭告警: `baby_cry:0.95` (带置信度)
+- 温湿度告警: `temp_high` (纯class名，无冒号)
+- 环境数据: `{"deviceId":"…","temp":28.5,"humi":55,"uptimeMs":…}`
+- 控制命令: `{"cmd":"arm","device":"aihear_03cb03"}`
 
 ---
 
@@ -233,7 +248,8 @@ h743vit6_aihear/
 │   ├── AlarmReceiver.java
 │   ├── AndroidManifest.xml
 │   ├── build_apk.sh
-│   └── assets/index.html
+│   ├── assets/index.html
+│   └── assets/chart.min.js
 ├── training/                # Python 训练管线
 │   ├── train_dscnn.py
 │   ├── cache_features.py

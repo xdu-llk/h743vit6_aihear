@@ -127,6 +127,9 @@ static void process_line(const char *line)
       if (cl > 0 && cmd_queue[cmd_wr][cl - 1] == '\r')
         cmd_queue[cmd_wr][cl - 1] = '\0';
       cmd_wr = next;
+      printf("[CMD-Q] enqueued '%s'\r\n", cmd_queue[cmd_wr]);
+    } else {
+      printf("[CMD-Q] FULL dropped '%s'\r\n", cmd);
     }
   }
   else {

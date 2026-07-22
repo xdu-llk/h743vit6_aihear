@@ -63,8 +63,9 @@ public class MqttService extends Service {
     private static final int    NID_FOREGROUND = 1;
     private static final int    NID_ALERT_BASE = 1000;
 
-    // ── 告警冷却 10 秒，避免刷屏 ──
-    private static final long   ALERT_COOLDOWN_MS = 10_000;
+    // ── 告警冷却：婴儿哭 20s，温湿度 5min ──
+    private static final long   ALERT_COOLDOWN_MS = 20_000;
+    private static final long   ENV_ALERT_COOLDOWN_MS = 300_000;
 
     // ── Broadcast action ──
     static final String ACTION_STOP = "com.aihear.STOP";
@@ -91,6 +92,17 @@ public class MqttService extends Service {
         new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> sDeviceEnv =
         new ConcurrentHashMap<>();
+
+    // ── env hourly aggregation (background-thread aggregation, main-thread write) ──
+    private static final ConcurrentHashMap<String, EnvAggregate> sEnvAggregates =
+        new ConcurrentHashMap<>();
+
+    private static class EnvAggregate {
+        long hourTs;
+        double tempSum, tempMax = -99, tempMin = 99;
+        double humiSum, humiMax = -1, humiMin = 999;
+        int samples;
+    }
 
     // ── 对外可读状态 ──
     String lastAlertClass = "";
@@ -323,11 +335,17 @@ public class MqttService extends Service {
                                     if (alertDevice != null && DeviceRegistry.contains(this, alertDevice)) {
                                         handleAlert(alertDevice, pub.topic, pub.payload);
                                     } else if (statusDevice != null && DeviceRegistry.contains(this, statusDevice)) {
-                                        sDeviceLastSeen.put(statusDevice, System.currentTimeMillis());
+                                        // Only STM32 heartbeat (plain device ID) updates last-seen.
+                                        // ESP self-status JSON ({"online":true,...}) is NOT the same
+                                        // as the sensor being alive.
+                                        if (!pub.payload.trim().startsWith("{")) {
+                                            sDeviceLastSeen.put(statusDevice, System.currentTimeMillis());
+                                        }
                                         Log.d(TAG, "设备状态 " + statusDevice + ": " + pub.payload);
                                     } else if (stateDevice != null && DeviceRegistry.contains(this, stateDevice)) {
                                         sDeviceControlState.put(stateDevice, pub.payload);
-                                        sDeviceLastSeen.put(stateDevice, System.currentTimeMillis());
+                                        // state is retained — don't update LastSeen.
+                                        // LastSeen should only come from live data (status/env/alert).
                                         Log.d(TAG, "控制状态 " + stateDevice + ": " + pub.payload);
                                     } else if (legacyAlertDevice != null &&
                                                DeviceRegistry.contains(this, legacyAlertDevice)) {
@@ -335,6 +353,36 @@ public class MqttService extends Service {
                                     } else if (envDevice != null && DeviceRegistry.contains(this, envDevice)) {
                                         sDeviceEnv.put(envDevice, pub.payload);
                                         sDeviceLastSeen.put(envDevice, System.currentTimeMillis());
+                                        // hourly aggregation — upsert to SQLite every sample
+                                        try {
+                                            JSONObject envJson = new JSONObject(pub.payload);
+                                            double t = envJson.optDouble("temp", Double.NaN);
+                                            double h = envJson.optDouble("humi", Double.NaN);
+                                            if (!Double.isNaN(t) && !Double.isNaN(h)) {
+                                                long envNow = System.currentTimeMillis();
+                                                long hourTs = (envNow / 3600_000L) * 3600_000L;
+                                                String aggKey = envDevice + "|" + hourTs;
+                                                EnvAggregate agg = sEnvAggregates.get(aggKey);
+                                                if (agg == null || agg.hourTs != hourTs) {
+                                                    agg = new EnvAggregate();
+                                                    agg.hourTs = hourTs;
+                                                    sEnvAggregates.put(aggKey, agg);
+                                                }
+                                                agg.tempSum += t; if (t > agg.tempMax) agg.tempMax = t; if (t < agg.tempMin) agg.tempMin = t;
+                                                agg.humiSum += h; if (h > agg.humiMax) agg.humiMax = h; if (h < agg.humiMin) agg.humiMin = h;
+                                                agg.samples++;
+                                                // flush to SQLite every sample — CONFLICT_REPLACE handles upsert
+                                                final EnvAggregate cur = agg;
+                                                final String dev = envDevice;
+                                                mainHandler.post(() -> {
+                                                    if (db != null && cur.samples > 0)
+                                                        db.upsertEnvHourly(dev, cur.hourTs,
+                                                            cur.tempSum / cur.samples, cur.tempMax, cur.tempMin,
+                                                            cur.humiSum / cur.samples, cur.humiMax, cur.humiMin,
+                                                            cur.samples);
+                                                });
+                                            }
+                                        } catch (Exception ignored) {}
                                     } else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
                                         String id = DeviceRegistry.normalize(pub.payload);
                                         if (DeviceRegistry.contains(this, id))
@@ -444,12 +492,14 @@ public class MqttService extends Service {
                         handleAlert(dev, pub.topic, pub.payload);
                     else {
                         String stDev = deviceIdFromTopic(pub.topic, "status");
+                        // subscribe-phase messages are historical replays,
+                        // not live heartbeats — skip LastSeen update
                         if (stDev != null && DeviceRegistry.contains(this, stDev))
-                            sDeviceLastSeen.put(stDev, System.currentTimeMillis());
+                            Log.d(TAG, "Q-status " + stDev + " (skip LastSeen)");
                         else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
-                        String id = DeviceRegistry.normalize(pub.payload);
-                        if (DeviceRegistry.contains(this, id))
-                            sDeviceLastSeen.put(id, System.currentTimeMillis());
+                            String id = DeviceRegistry.normalize(pub.payload);
+                            if (DeviceRegistry.contains(this, id))
+                                Log.d(TAG, "Q-legacy-status " + id + " (skip LastSeen)");
                         }
                     }
                 }
@@ -717,9 +767,12 @@ public class MqttService extends Service {
         }
 
         long now = System.currentTimeMillis();
-        sDeviceLastSeen.put(deviceId, now);
+        // only live alerts update LastSeen — skip subscribe-phase replays
+        if (connected) sDeviceLastSeen.put(deviceId, now);
         sMsgCount++; // MQTT 消息接收计数
-        final boolean isAlert = cls.contains("baby_cry") || cls.contains("help") || cls.contains("cry");
+        final boolean isAlert = cls.contains("baby_cry") || cls.contains("help") || cls.contains("cry")
+            || cls.startsWith("temp_") || cls.startsWith("humi_");
+        final boolean isEnvAlert = cls.startsWith("temp_") || cls.startsWith("humi_");
 
         // ── 入库：按设备和类别分别进行 10 分钟去重 ──
         String dbKey = deviceId + "|" + cls;
@@ -754,14 +807,17 @@ public class MqttService extends Service {
                 return;
             }
 
-            // 防抖
-            long previousAlertMs = lastAlertByDevice.containsKey(fDeviceId)
-                ? lastAlertByDevice.get(fDeviceId) : 0;
-            if (fNow - previousAlertMs < ALERT_COOLDOWN_MS) {
+            // 防抖 — 哭声 20s，温湿度 5min
+            long cooldown = isEnvAlert ? ENV_ALERT_COOLDOWN_MS : ALERT_COOLDOWN_MS;
+            // per-device+class cooldown for env alerts, per-device for cry
+            String coolKey = isEnvAlert ? (fDeviceId + "|" + fCls) : fDeviceId;
+            long previousAlertMs = lastAlertByDevice.containsKey(coolKey)
+                ? lastAlertByDevice.get(coolKey) : 0;
+            if (fNow - previousAlertMs < cooldown) {
                 Log.d(TAG, fDeviceId + " 告警冷却中，跳过");
                 return;
             }
-            lastAlertByDevice.put(fDeviceId, fNow);
+            lastAlertByDevice.put(coolKey, fNow);
 
             // Android 通知
             int notificationId = alertNotificationId(fDeviceId);
@@ -854,9 +910,14 @@ public class MqttService extends Service {
     }
 
     private Notification buildAlertNote(String deviceId, String cls, double score) {
-        String text = String.format("🚼 %s 检测到哭声！(%s, %.0f%%)",
-            deviceId, cls, score * 100);
-        return buildNotification(text, true);
+        String emoji, text;
+        if (cls.startsWith("temp_high"))   { emoji = "🌡️"; text = "温度过高"; }
+        else if (cls.startsWith("temp_low")) { emoji = "🌡️"; text = "温度过低"; }
+        else if (cls.startsWith("humi_high")) { emoji = "💧"; text = "湿度过高"; }
+        else if (cls.startsWith("humi_low"))  { emoji = "💧"; text = "湿度过低"; }
+        else { emoji = "🚼"; text = String.format("检测到哭声 (%.0f%%)", score * 100); }
+
+        return buildNotification(String.format("%s %s %s", emoji, deviceId, text), true);
     }
 
     /** 静态启动辅助 */

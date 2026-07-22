@@ -100,6 +100,10 @@ static void parse_command(const char *cmd) {
       if(colon){
         size_t n=(size_t)(colon-(sep+1)); if(n>sizeof(cls)-1)n=sizeof(cls)-1;
         memcpy(cls,sep+1,n);cls[n]=0;score=strtof(colon+1,nullptr);
+      } else {
+        /* no colon — entire payload is the class name (env alerts) */
+        size_t n=strlen(sep+1); if(n>sizeof(cls)-1)n=sizeof(cls)-1;
+        memcpy(cls,sep+1,n);cls[n]=0;score=1.0f;
       }
       char json[192];
       snprintf(json,sizeof(json),

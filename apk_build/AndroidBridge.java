@@ -323,6 +323,34 @@ public class AndroidBridge {
         return MqttService.getControlState(deviceId);
     }
 
+    // ─── 图表数据 ───
+
+    @JavascriptInterface
+    public String getEnvHourly(String deviceId, int hours) {
+        try {
+            Activity a = getActivity();
+            String id = DeviceRegistry.normalize(deviceId);
+            if (a == null || id.isEmpty()) return "[]";
+            AlertDbHelper db = new AlertDbHelper(a);
+            String json = db.getEnvHourly(id, hours).toString();
+            db.close();
+            return json;
+        } catch (Exception e) { return "[]"; }
+    }
+
+    @JavascriptInterface
+    public String getDailyCryAndFeeding(String deviceId, int days) {
+        try {
+            Activity a = getActivity();
+            String id = DeviceRegistry.normalize(deviceId);
+            if (a == null || id.isEmpty()) return "[]";
+            AlertDbHelper db = new AlertDbHelper(a);
+            String json = db.getDailyCryAndFeeding(id, days).toString();
+            db.close();
+            return json;
+        } catch (Exception e) { return "[]"; }
+    }
+
     // ─── 错误提示 ───
 
     private void toast(String msg) {

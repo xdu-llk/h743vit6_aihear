@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <title>AI Hear</title>
+<script src="chart.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden}
@@ -84,9 +85,10 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8;
   border-left:4px solid #E0D0D0}
 .alert-item.cry-card{border-left:4px solid #E8534F;background:#FFFBFB}
+.alert-item.env-card{border-left:4px solid #E8A050;background:#FFFBF5}
 .alert-item .icon{font-size:30px;flex-shrink:0}
 .alert-item .info{flex:1}.alert-item .cls{font-weight:700;font-size:14px}
-.alert-item .cls.cry{color:#E8534F}.alert-item .meta{font-size:12px;color:#B8A9A5;margin-top:2px}
+.alert-item .cls.cry{color:#E8534F}.alert-item .cls.env{color:#D08030}.alert-item .meta{font-size:12px;color:#B8A9A5;margin-top:2px}
 .alert-item .del{background:#FDD;border:1px solid #FCC;color:#D33;padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600}
 .alert-item .del:active{background:#FBB}
 
@@ -106,13 +108,12 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8}
 .stat-card .num{font-size:36px;font-weight:800;color:#F2A0A0}
 .stat-card .label{font-size:13px;color:#B8A9A5;margin-top:4px}
-.bar-chart{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.bar-chart h3{font-size:15px;margin-bottom:14px;color:#666}
-.bar-row{display:flex;align-items:center;margin-bottom:10px}
-.bar-row .day{width:36px;font-size:12px;color:#B8A9A5;text-align:right;margin-right:8px;flex-shrink:0}
-.bar-row .bar{flex:1;height:24px;background:#F5E0E0;border-radius:6px;position:relative;overflow:hidden}
-.bar-row .bar .fill{height:100%;background:linear-gradient(90deg,#F2A0A0,#E8888A);border-radius:6px;transition:width .5s}
-.bar-row .bar span{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff}
+.chart-card{background:#fff;border-radius:10px;padding:18px 16px 16px;border:1px solid var(--line);box-shadow:0 1px 4px rgba(28,45,41,.04)}
+.chart-card h3{font-size:13px;margin-bottom:4px;color:var(--ink);font-weight:650;letter-spacing:.02em}
+.chart-wrap{width:100%;height:260px;position:relative}
+.chart-wrap-scroll{width:100%;height:260px;overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
+.chart-wrap-scroll canvas{min-width:672px;height:260px}
+/* (chart-wrap-scroll reserved for future wide charts) */
 
 /* ── AI ── */
 .ai-card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
@@ -207,13 +208,6 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
 .stat-card{border-radius:8px;padding:14px 10px;border-color:var(--line);box-shadow:none;text-align:left;min-height:92px}
 .stat-card .num{font-size:28px;color:var(--ink);line-height:1.1}
 .stat-card .label{font-size:11px;color:var(--muted);margin-top:8px}
-.stat-card:nth-child(1) .num,.stat-card:nth-child(3) .num{color:var(--red)}
-.stat-card:nth-child(2) .num,.stat-card:nth-child(4) .num{color:var(--teal)}
-.stat-card:nth-child(5) .num{color:var(--amber)}.stat-card:nth-child(6) .num{color:var(--blue)}
-.bar-chart{border-radius:8px;border:1px solid var(--line);box-shadow:none;padding:16px}
-.bar-chart h3{color:var(--ink)}
-.bar-row .bar{background:#eef1f0}.bar-row .bar .fill{background:var(--red);border-radius:4px}
-
 .ai-card{border-radius:8px;border:1px solid var(--line);box-shadow:none;padding:16px}
 .ai-card h3{color:var(--ink)}
 .ai-result{border-radius:6px;border-color:var(--line);background:#f8faf9;color:#394440}
@@ -316,18 +310,8 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
   <!-- 统计 -->
   <div id="pane-stats" class="tab-pane">
     <div class="detail-title"><span id="statsDeviceTitle">数据统计</span><span></span></div>
-    <div class="stat-grid">
-      <div class="stat-card"><div class="num" id="todayAlerts">0</div><div class="label">今日告警</div></div>
-      <div class="stat-card"><div class="num" id="todayFeeds">0</div><div class="label">今日喂养</div></div>
-      <div class="stat-card"><div class="num" id="weekAlerts">0</div><div class="label">本周告警</div></div>
-      <div class="stat-card"><div class="num" id="weekFeeds">0</div><div class="label">本周喂养</div></div>
-      <div class="stat-card"><div class="num" id="avgTemp">--</div><div class="label">平均温度</div></div>
-      <div class="stat-card"><div class="num" id="avgHumi">--</div><div class="label">平均湿度</div></div>
-    </div>
-    <div class="bar-chart">
-      <h3>近7天告警趋势</h3>
-      <div id="chartBars"></div>
-    </div>
+    <div class="chart-card"><h3>近7天 哭声 / 喂养</h3><div class="chart-wrap"><canvas id="chartCryFeeding"></canvas></div></div>
+    <div class="chart-card" style="margin-top:14px"><h3>近24小时 温湿度</h3><div class="chart-wrap"><canvas id="chartEnv"></canvas></div></div>
   </div>
 
   <!-- AI -->
@@ -417,6 +401,8 @@ function selectDevice(id){
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
   renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
   loadAlerts();loadStats();renderMonitorList();
+  if(chartCry){chartCry.destroy();chartCry=null;}
+  if(chartEnv){chartEnv.destroy();chartEnv=null;}
   document.getElementById('aiResult').textContent='点击下方按钮开始分析';
   /* immediately refresh per-device display */
   updateArmBtn();updateMusicBtn();pollEnv();
@@ -471,8 +457,10 @@ function hideError(){document.getElementById('errMsg').style.display='none';}
 // ═══════════════ 告警弹窗 ═══════════════
 function onNewAlert(cls,score){
   if(overlayActive)return;
+  // env alerts: system notification only, no fullscreen overlay
+  if(/^temp_|^humi_/.test(cls)){loadAlerts();return;}
   var pct=Math.round((score||0)*100);
-  document.getElementById('overlayMsg').textContent=/cry|help/i.test(cls)?'🚼 检测到婴儿哭声！':'⚠ 检测到异常声音';
+  document.getElementById('overlayMsg').textContent='🚼 检测到婴儿哭声！';
   document.getElementById('overlaySub').textContent='类别: '+cls+'  置信度: '+pct+'%';
   document.getElementById('overlay').classList.add('show');overlayActive=true;
   startBeep();if(navigator.vibrate)navigator.vibrate([500,200,500,200,500,200,1000]);
@@ -503,10 +491,12 @@ function loadAlerts(){
   if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
   var h='';
   for(var i=0;i<data.length;i++){
-    var a=data[i],d=new Date(a.time),cry=/cry|help/i.test(a.cls||'');
-    h+='<div class="alert-item'+(cry?' cry-card':'')+'"><span class="icon">'+(cry?'🚼':'🔔')+'</span>'+
-      '<div class="info"><div class="cls'+(cry?' cry':'')+'">'+esc(a.cls)+'</div>'+
-      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+esc(a.deviceId||deviceId)+' · '+Math.round((a.score||0)*100)+'%</div></div>'+
+    var a=data[i],d=new Date(a.time),cry=/cry|help/i.test(a.cls||''),env=/^temp_|^humi_/.test(a.cls||'');
+    var icon=cry?'🚼':env?(/^temp_/.test(a.cls)?'🌡️':'💧'):'🔔';
+    var cardClass=cry?'cry-card':env?'env-card':'';
+    h+='<div class="alert-item'+(cardClass?' '+cardClass:'')+'"><span class="icon">'+icon+'</span>'+
+      '<div class="info"><div class="cls'+(cry?' cry':'')+(env?' env':'')+'">'+esc(a.cls)+'</div>'+
+      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+esc(a.deviceId||deviceId)+' · '+(env?esc(a.cls):Math.round((a.score||0)*100)+'%')+'</div></div>'+
       '<button class="del" onclick="delAlert('+a.id+')">删除</button></div>';
   }
   list.innerHTML=h;
@@ -558,24 +548,50 @@ function loadFeedings(){
 function delFeeding(id){if(typeof Android!=='undefined')Android.deleteFeeding(id);loadFeedings();}
 
 // ═══════════════ 统计 ═══════════════
+// ═══════════ Chart.js 实例 ═══════════
+var chartCry=null,chartEnv=null;
+
 function loadStats(){
-  if(typeof Android==='undefined')return;
-  document.getElementById('todayAlerts').textContent=Android.getTodayAlertsForDevice(deviceId);
-  document.getElementById('todayFeeds').textContent=deviceId?Android.getTodayFeedingsForDevice(deviceId):Android.getTodayFeedings();
-  var alerts=JSON.parse(Android.getAlertsForDevice(deviceId)||'[]');
-  var feeds=JSON.parse(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()||'[]');
-  var wa=0,wf=0,weekAgo=Date.now()-7*86400000,days=[],dayMap={};
-  for(var i=0;i<7;i++){var k=new Date(Date.now()-(6-i)*86400000).toLocaleDateString('zh-CN');dayMap[k]=0;days.push(k);}
-  for(var i=0;i<alerts.length;i++){if(alerts[i].time>weekAgo)wa++;var dk=new Date(alerts[i].time).toLocaleDateString('zh-CN');if(dayMap[dk]!==undefined)dayMap[dk]++;}
-  for(var i=0;i<feeds.length;i++){if(feeds[i].time>weekAgo)wf++;}
-  document.getElementById('weekAlerts').textContent=wa;document.getElementById('weekFeeds').textContent=wf;
-  var maxV=Math.max(1,Math.max.apply(null,Object.values(dayMap))),bars='';
-  days.forEach(function(k){var v=dayMap[k],w=Math.round(v/maxV*100);
-    bars+='<div class="bar-row"><span class="day">'+k.slice(5)+'</span><div class="bar"><div class="fill" style="width:'+w+'%"></div>'+(v>0?'<span>'+v+'</span>':'')+'</div></div>';});
-  document.getElementById('chartBars').innerHTML=bars;
-  var avg=getEnvAvg();
-  document.getElementById('avgTemp').textContent=avg?avg.temp.toFixed(1)+'℃':'--';
-  document.getElementById('avgHumi').textContent=avg?Math.round(avg.humi)+'%':'--';
+  if(typeof Android==='undefined'||!deviceId)return;
+  // ═══ Chart 1: 7-day cry + feeding ═══
+  try{var cfData=JSON.parse(Android.getDailyCryAndFeeding(deviceId,7)||'[]');}catch(e){cfData=[];}
+  var labels=[],cryData=[],feedData=[];
+  for(var i=0;i<cfData.length;i++){
+    labels.push(new Date(cfData[i].dayTs).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'}));
+    cryData.push(cfData[i].cryCount||0);feedData.push(cfData[i].feedCount||0);
+  }
+  if(!chartCry){
+    var ctx1=document.getElementById('chartCryFeeding').getContext('2d');
+    var g1=ctx1.createLinearGradient(0,0,0,240);g1.addColorStop(0,'rgba(217,77,77,.18)');g1.addColorStop(1,'rgba(217,77,77,0)');
+    var g2=ctx1.createLinearGradient(0,0,0,240);g2.addColorStop(0,'rgba(20,125,114,.15)');g2.addColorStop(1,'rgba(20,125,114,0)');
+    chartCry=new Chart(ctx1,{type:'line',data:{labels:labels,datasets:[
+      {label:'哭声',data:cryData,borderColor:'#d94d4d',backgroundColor:g1,borderWidth:2,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#d94d4d',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7},
+      {label:'喂养',data:feedData,borderColor:'#147d72',backgroundColor:g2,borderWidth:2,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#147d72',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyleWidth:8,padding:20,font:{size:12,family:'-apple-system,PingFang SC,sans-serif'},color:'#4A5553'}}},scales:{y:{beginAtZero:true,ticks:{stepSize:1,font:{size:11},color:'#889593'},grid:{color:'#eef1f0',drawBorder:false}},x:{ticks:{font:{size:11},color:'#889593'},grid:{display:false}}}}});
+  }else{
+    chartCry.data.labels=labels;chartCry.data.datasets[0].data=cryData;chartCry.data.datasets[1].data=feedData;chartCry.update();
+  }
+
+  // ═══ Chart 2: 24h temp + humi ═══
+  try{var envData=JSON.parse(Android.getEnvHourly(deviceId,24)||'[]');}catch(e){envData=[];}
+  var envLabels=[],tempData=[],humiData=[];
+  for(var i=0;i<envData.length;i++){
+    var d=new Date(envData[i].hourTs);
+    envLabels.push(d.getHours()+':00');
+    tempData.push(envData[i].tempAvg!=null?+envData[i].tempAvg:NaN);
+    humiData.push(envData[i].humiAvg!=null?+envData[i].humiAvg:NaN);
+  }
+  if(!chartEnv){
+    var ctx2=document.getElementById('chartEnv').getContext('2d');
+    var tg=ctx2.createLinearGradient(0,0,0,240);tg.addColorStop(0,'rgba(230,100,60,.25)');tg.addColorStop(1,'rgba(230,100,60,0)');
+    var hg=ctx2.createLinearGradient(0,0,0,240);hg.addColorStop(0,'rgba(50,120,200,.18)');hg.addColorStop(1,'rgba(50,120,200,0)');
+    chartEnv=new Chart(ctx2,{type:'line',data:{labels:envLabels,datasets:[
+      {label:'温度 (°C)',data:tempData,borderColor:'#e6643c',backgroundColor:tg,borderWidth:2.5,fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#e6643c',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7,yAxisID:'y'},
+      {label:'湿度 (%RH)',data:humiData,borderColor:'#4a8fd4',backgroundColor:hg,borderWidth:2.5,fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#4a8fd4',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7,yAxisID:'y1'}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyleWidth:8,padding:20,font:{size:12,family:'-apple-system,PingFang SC,sans-serif'},color:'#4A5553'}}},scales:{y:{type:'linear',position:'left',min:0,max:45,ticks:{font:{size:11},color:'#e6643c',callback:function(v){return v+'°'}},grid:{color:'#eef1f0',drawBorder:false}},y1:{type:'linear',position:'right',min:0,max:100,ticks:{font:{size:11},color:'#4a8fd4'},grid:{display:false}},x:{ticks:{font:{size:11},color:'#889593',maxTicksLimit:8},grid:{display:false}}},spanGaps:false}});
+  }else{
+    chartEnv.data.labels=envLabels;chartEnv.data.datasets[0].data=tempData;chartEnv.data.datasets[1].data=humiData;chartEnv.update();
+  }
 }
 
 // ═══════════════ MQTT 状态 ═══════════════
@@ -603,13 +619,27 @@ function runAiAnalysis(){
   var btn=document.getElementById('btnAi');btn.textContent='分析中...';btn.disabled=true;
   var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlertsForDevice(deviceId):null)||'[]');
   var feeds=JSON.parse((typeof Android!=='undefined'?(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()):null)||'[]');
-  var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,at=[];
-  for(var i=0;i<alerts.length;i++){if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));}
+  var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,envCount=0,at=[];
+  for(var i=0;i<alerts.length;i++){
+    var cls=alerts[i].cls||'';
+    if(cls.indexOf('baby_cry')>=0||cls.indexOf('cry')>=0){
+      if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));
+    }else if(/^temp_|^humi_/.test(cls)){
+      if(alerts[i].time>=ds)envCount++;
+    }
+  }
   for(var i=0;i<feeds.length;i++){if(feeds[i].time>=ds)tf++;}
   var devName=deviceId?deviceAlias(deviceId):'全部设备';
-  var avg=getEnvAvg(),envStr='';
-  if(avg)envStr='\n环境：\n- 平均温度: '+avg.temp.toFixed(1)+'℃\n- 平均湿度: '+Math.round(avg.humi)+'%';
-  var prompt='你是婴儿护理专家，同时懂环境健康。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计: '+alerts.length+' 次哭声 / '+feeds.length+' 次喂养'+envStr+'\n\n请综合分析哭声规律、喂养间隔、温湿度对宝宝舒适度的影响、综合护理建议。限300字。';
+  // use SQLite env_hourly for full 24h data (same source as chart 2)
+  var envData=JSON.parse((typeof Android!=='undefined'?Android.getEnvHourly(deviceId,24):null)||'[]');
+  var envStr='',tempSum=0,humiSum=0,envSamples=0;
+  for(var i=0;i<envData.length;i++){
+    if(envData[i].tempAvg!=null){tempSum+=envData[i].tempAvg;envSamples++;}
+    if(envData[i].humiAvg!=null)humiSum+=envData[i].humiAvg;
+  }
+  if(envSamples>0)envStr='\n环境（24h）：\n- 平均温度: '+(tempSum/envSamples).toFixed(1)+'℃\n- 平均湿度: '+Math.round(humiSum/envSamples)+'%';
+  if(envCount>0)envStr+='\n- 今日温湿度异常: '+envCount+' 次';
+  var prompt='你是婴儿护理专家，同时懂环境健康。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近哭声: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计哭声: '+alerts.filter(function(a){var c=a.cls||'';return c.indexOf('baby_cry')>=0||c.indexOf('cry')>=0;}).length+' 次 / '+feeds.length+' 次喂养'+envStr+'\n\n请综合分析哭声规律、喂养间隔、温湿度趋势及其异常对宝宝舒适度的影响、综合护理建议。限300字。';
   fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
     body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
@@ -715,7 +745,7 @@ function pollEnv(){
   try{var d=JSON.parse(Android.getEnvData(deviceId)||'{}');}
   catch(e){var d={};}
   if(d.temp!=null&&d.humi!=null){
-    document.getElementById('envDisplay').textContent=d.temp.toFixed(1)+'°C · '+Math.round(d.humi)+'% RH';
+    document.getElementById('envDisplay').textContent='🌡️ '+d.temp.toFixed(1)+'°C  💧 '+Math.round(d.humi)+'% RH';
     var sampleKey=(d.deviceId||deviceId)+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
     if(sampleKey===(lastEnvSampleKey[deviceId]||''))return;
     lastEnvSampleKey[deviceId]=sampleKey;

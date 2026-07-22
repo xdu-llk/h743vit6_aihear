@@ -14,7 +14,7 @@ import org.json.JSONObject;
 public class AlertDbHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME    = "aihear.db";
-    private static final int    DB_VERSION = 3;
+    private static final int    DB_VERSION = 4;
 
     // ── 告警表 ──
     private static final String TABLE_ALERT = "alerts";
@@ -32,6 +32,18 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     private static final String COL_FEED_TS     = "timestamp";
     private static final String COL_FEED_NOTE   = "note";
     private static final String COL_FEED_DEVICE = "device_id";
+
+    // ── 环境数据聚合表 ──
+    private static final String TABLE_ENV_HOURLY  = "env_hourly";
+    private static final String COL_ENV_DEVICE    = "device_id";
+    private static final String COL_ENV_HOUR_TS   = "hour_ts";
+    private static final String COL_ENV_TEMP_AVG  = "temp_avg";
+    private static final String COL_ENV_TEMP_MAX  = "temp_max";
+    private static final String COL_ENV_TEMP_MIN  = "temp_min";
+    private static final String COL_ENV_HUMI_AVG  = "humi_avg";
+    private static final String COL_ENV_HUMI_MAX  = "humi_max";
+    private static final String COL_ENV_HUMI_MIN  = "humi_min";
+    private static final String COL_ENV_SAMPLES   = "sample_cnt";
 
     public AlertDbHelper(Context ctx) {
         super(ctx, DB_NAME, null, DB_VERSION);
@@ -62,6 +74,21 @@ public class AlertDbHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE INDEX idx_feed_ts ON " + TABLE_FEED + "(" + COL_FEED_TS + " DESC)");
         db.execSQL("CREATE INDEX idx_feed_device_ts ON " + TABLE_FEED +
             "(" + COL_FEED_DEVICE + "," + COL_FEED_TS + " DESC)");
+
+        db.execSQL("CREATE TABLE " + TABLE_ENV_HOURLY + " (" +
+            COL_ENV_DEVICE  + " TEXT NOT NULL, " +
+            COL_ENV_HOUR_TS + " INTEGER NOT NULL, " +
+            COL_ENV_TEMP_AVG + " REAL, " +
+            COL_ENV_TEMP_MAX + " REAL, " +
+            COL_ENV_TEMP_MIN + " REAL, " +
+            COL_ENV_HUMI_AVG + " REAL, " +
+            COL_ENV_HUMI_MAX + " REAL, " +
+            COL_ENV_HUMI_MIN + " REAL, " +
+            COL_ENV_SAMPLES  + " INTEGER DEFAULT 0, " +
+            "PRIMARY KEY (" + COL_ENV_DEVICE + "," + COL_ENV_HOUR_TS + "))");
+
+        db.execSQL("CREATE INDEX idx_env_hourly_ts ON " + TABLE_ENV_HOURLY +
+            "(" + COL_ENV_HOUR_TS + " DESC)");
     }
 
     @Override
@@ -81,6 +108,21 @@ public class AlertDbHelper extends SQLiteOpenHelper {
                 COL_FEED_DEVICE + " TEXT NOT NULL DEFAULT 'legacy'");
             db.execSQL("CREATE INDEX idx_feed_device_ts ON " + TABLE_FEED +
                 "(" + COL_FEED_DEVICE + "," + COL_FEED_TS + " DESC)");
+        }
+        if (oldV < 4) {
+            db.execSQL("CREATE TABLE " + TABLE_ENV_HOURLY + " (" +
+                COL_ENV_DEVICE  + " TEXT NOT NULL, " +
+                COL_ENV_HOUR_TS + " INTEGER NOT NULL, " +
+                COL_ENV_TEMP_AVG + " REAL, " +
+                COL_ENV_TEMP_MAX + " REAL, " +
+                COL_ENV_TEMP_MIN + " REAL, " +
+                COL_ENV_HUMI_AVG + " REAL, " +
+                COL_ENV_HUMI_MAX + " REAL, " +
+                COL_ENV_HUMI_MIN + " REAL, " +
+                COL_ENV_SAMPLES  + " INTEGER DEFAULT 0, " +
+                "PRIMARY KEY (" + COL_ENV_DEVICE + "," + COL_ENV_HOUR_TS + "))");
+            db.execSQL("CREATE INDEX idx_env_hourly_ts ON " + TABLE_ENV_HOURLY +
+                "(" + COL_ENV_HOUR_TS + " DESC)");
         }
     }
 
@@ -228,6 +270,86 @@ public class AlertDbHelper extends SQLiteOpenHelper {
         if (c.moveToFirst()) n = c.getInt(0);
         c.close();
         return n;
+    }
+
+    // ── 环境聚合 ──
+
+    public void upsertEnvHourly(String deviceId, long hourTs,
+                                 double tempAvg, double tempMax, double tempMin,
+                                 double humiAvg, double humiMax, double humiMin,
+                                 int samples) {
+        ContentValues cv = new ContentValues();
+        cv.put(COL_ENV_DEVICE,   deviceId);
+        cv.put(COL_ENV_HOUR_TS,  hourTs);
+        cv.put(COL_ENV_TEMP_AVG, tempAvg);
+        cv.put(COL_ENV_TEMP_MAX, tempMax);
+        cv.put(COL_ENV_TEMP_MIN, tempMin);
+        cv.put(COL_ENV_HUMI_AVG, humiAvg);
+        cv.put(COL_ENV_HUMI_MAX, humiMax);
+        cv.put(COL_ENV_HUMI_MIN, humiMin);
+        cv.put(COL_ENV_SAMPLES,  samples);
+        getWritableDatabase().insertWithOnConflict(
+            TABLE_ENV_HOURLY, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public JSONArray getEnvHourly(String deviceId, int hours) {
+        JSONArray arr = new JSONArray();
+        long cutoff = System.currentTimeMillis() - (long)hours * 3600_000L;
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor c = db.query(TABLE_ENV_HOURLY, null,
+            COL_ENV_DEVICE + "=? AND " + COL_ENV_HOUR_TS + ">=?",
+            new String[]{deviceId, String.valueOf(cutoff)},
+            null, null, COL_ENV_HOUR_TS + " ASC");
+        while (c.moveToNext()) {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("hourTs",    c.getLong(c.getColumnIndexOrThrow(COL_ENV_HOUR_TS)));
+                o.put("tempAvg",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_AVG)));
+                o.put("tempMax",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_MAX)));
+                o.put("tempMin",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_MIN)));
+                o.put("humiAvg",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_AVG)));
+                o.put("humiMax",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_MAX)));
+                o.put("humiMin",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_MIN)));
+                o.put("samples",   c.getInt(c.getColumnIndexOrThrow(COL_ENV_SAMPLES)));
+            } catch (Exception ignored) {}
+            arr.put(o);
+        }
+        c.close();
+        return arr;
+    }
+
+    public JSONArray getDailyCryAndFeeding(String deviceId, int days) {
+        JSONArray arr = new JSONArray();
+        SQLiteDatabase db = getReadableDatabase();
+        long cutoff = todayStart() - (long)(days - 1) * 86400_000L;
+        for (int i = 0; i < days; i++) {
+            long dayStart = cutoff + (long)i * 86400_000L;
+            long dayEnd   = dayStart + 86400_000L;
+
+            Cursor cryCur = db.rawQuery(
+                "SELECT COUNT(*) FROM " + TABLE_ALERT +
+                " WHERE " + COL_DEVICE + "=? AND " + COL_CLASS + "='baby_cry'" +
+                " AND " + COL_TS + ">=? AND " + COL_TS + "<?",
+                new String[]{deviceId, String.valueOf(dayStart), String.valueOf(dayEnd)});
+            int cryCount = (cryCur.moveToFirst()) ? cryCur.getInt(0) : 0;
+            cryCur.close();
+
+            Cursor feedCur = db.rawQuery(
+                "SELECT COUNT(*) FROM " + TABLE_FEED +
+                " WHERE " + COL_FEED_DEVICE + "=? AND " + COL_FEED_TS + ">=? AND " + COL_FEED_TS + "<?",
+                new String[]{deviceId, String.valueOf(dayStart), String.valueOf(dayEnd)});
+            int feedCount = (feedCur.moveToFirst()) ? feedCur.getInt(0) : 0;
+            feedCur.close();
+
+            JSONObject o = new JSONObject();
+            try {
+                o.put("dayTs", dayStart);
+                o.put("cryCount", cryCount);
+                o.put("feedCount", feedCount);
+            } catch (Exception ignored) {}
+            arr.put(o);
+        }
+        return arr;
     }
 
     private long todayStart() {

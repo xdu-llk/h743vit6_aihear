@@ -47,6 +47,12 @@ static void vAudioInferTask(void *pvParameters)
   TickType_t last_env_read = xTaskGetTickCount();
   TickType_t last_control_publish = 0;
   TickType_t alert_until = 0;
+  TickType_t env_alert_until = 0;
+  /* 4 independent env alert cooldowns — 5 min each */
+  TickType_t env_cooldown_temp_high = 0;
+  TickType_t env_cooldown_temp_low  = 0;
+  TickType_t env_cooldown_humi_high = 0;
+  TickType_t env_cooldown_humi_low  = 0;
   uint8_t armed = 1;
   uint8_t last_published_armed = 0xff;
   uint8_t last_published_music = 0xff;
@@ -129,7 +135,7 @@ static void vAudioInferTask(void *pvParameters)
                names[0], (double)(prob_cry * 100), peak);
         OLED_ShowStatus("ALERT!", names[0], dbfs);
         Alarm_SetState(ALARM_STATE_ALERT);
-        alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
+        alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
         Buzzer_PlayMelody();
         { char p[32]; snprintf(p, sizeof(p), "%s:%.2f", names[0], (double)prob_cry);
           WifiIoT_Publish("aihear/alert", p); }
@@ -162,7 +168,7 @@ static void vAudioInferTask(void *pvParameters)
           printf("\r\n[DETECT] %s avg=%.0f%% (voted)\r\n", names[0], (double)(avg*100));
           OLED_ShowStatus("ALERT!", names[0], dbfs);
           Alarm_SetState(ALARM_STATE_ALERT);
-          alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
+          alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
           Buzzer_PlayMelody();
           { char p[32]; snprintf(p, sizeof(p), "%s:%.2f", names[0], (double)avg);
             WifiIoT_Publish("aihear/alert", p); }
@@ -172,7 +178,7 @@ static void vAudioInferTask(void *pvParameters)
         /* Tier 3: low confidence → skip */
         static int cnt = 0;
         if (++cnt % 10 == 1)
-          printf("\r\n[NORMAL] p=%.0f%% pk=%lu\r\n", (double)(prob_cry * 100), peak);
+          printf("\r\n[NORMAL] pk=%lu\r\n", peak);
         OLED_ShowStatus("NORMAL", NULL, dbfs);
       }
     }
@@ -231,6 +237,32 @@ static void vAudioInferTask(void *pvParameters)
                  devid ? devid : "", (double)temp_c, (double)humi_pct,
                  (unsigned long)HAL_GetTick());
         WifiIoT_Publish("aihear/env", payload);
+
+        /* ── Environment threshold alerts (armed only) ── */
+        if (armed && WifiIoT_IsReady()) {
+          TickType_t now = xTaskGetTickCount();
+          const char *env_alert = NULL;
+
+          if (temp_c > 30.0f && (now - env_cooldown_temp_high) >= pdMS_TO_TICKS(300000))
+            { env_alert = "temp_high"; env_cooldown_temp_high = now; }
+          else if (temp_c < 16.0f && (now - env_cooldown_temp_low) >= pdMS_TO_TICKS(300000))
+            { env_alert = "temp_low"; env_cooldown_temp_low = now; }
+          else if (humi_pct > 80.0f && (now - env_cooldown_humi_high) >= pdMS_TO_TICKS(300000))
+            { env_alert = "humi_high"; env_cooldown_humi_high = now; }
+          else if (humi_pct < 30.0f && (now - env_cooldown_humi_low) >= pdMS_TO_TICKS(300000))
+            { env_alert = "humi_low"; env_cooldown_humi_low = now; }
+
+          if (env_alert) {
+            printf("\r\n[ENV] %s t=%.1f h=%.1f\r\n", env_alert, (double)temp_c, (double)humi_pct);
+            OLED_ShowStatus("ALERT!", env_alert, 0);
+            /* cry alert has priority — don't overwrite */
+            if (Alarm_GetState() != ALARM_STATE_ALERT) {
+              Alarm_SetState(ALARM_STATE_ENV_ALERT);
+              env_alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+            }
+            WifiIoT_Publish("aihear/alert", env_alert);
+          }
+        }
       } else {
         OLED_SetEnvironment(0.0f, 0.0f, 0);
         printf("[DHT11] failed: %s bit=%d\r\n",
@@ -253,8 +285,13 @@ static void vAudioInferTask(void *pvParameters)
     }
 #endif
 
-    if (Alarm_GetState() == ALARM_STATE_ALERT && xTaskGetTickCount() > alert_until)
-      Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+    {
+      AlarmState st = Alarm_GetState();
+      if (st == ALARM_STATE_ALERT && xTaskGetTickCount() > alert_until)
+        Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+      if (st == ALARM_STATE_ENV_ALERT && xTaskGetTickCount() > env_alert_until)
+        Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+    }
 
     {
       TickType_t now = xTaskGetTickCount();

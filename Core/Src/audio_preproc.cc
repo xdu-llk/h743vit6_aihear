@@ -64,9 +64,7 @@ void AudioPreproc_FeedFrame(const int32_t *pcm_512)
      causing Mel band 0 energy to be 4-5σ above training data distribution */
   power[0] = 0.0f;  /* DC */
   for (int k = 1; k <= 2; k++) {
-    float re = fft_out[2 * k - 1];
-    float im = fft_out[2 * k];
-    power[k] = 0.0f;  /* bins 1-2: 31-94 Hz */
+    power[k] = 0.0f;  /* bins 1-2: 31-94 Hz — suppressed (INMP441 self-noise) */
   }
   for (int k = 3; k < PREPROC_FFT_N / 2; k++) {
     float re = fft_out[2 * k - 1];
