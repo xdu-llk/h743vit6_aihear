@@ -9,12 +9,20 @@
 typedef struct { uint16_t freq; uint16_t dur_ms; } Note;
 
 static const Note melody[] = {
-  /* Soft 4-tone lullaby — minimal volume, sub-400Hz to avoid mic cross-talk */
-  {330,600},{294,400},{262,400},{294,800},
-  {330,600},{294,400},{262,400},{294,800},
+  /* Two Tigers (两只老虎) — Q=quarter H=half E=eighth */
+  {262,350},{294,350},{330,350},{262,350},    /* 两只老虎 QQQQ */
+  {262,350},{294,350},{330,350},{262,350},    /* 两只老虎 QQQQ */
+  {330,350},{349,350},{392,650},              /* 跑得快 QQH */
+  {330,350},{349,350},{392,650},              /* 跑得快 QQH */
+  {392,200},{440,200},{392,200},{349,200},    /* 一只没有 EEEE */
+  {330,350},{262,350},                        /* 眼睛 QQ */
+  {392,200},{440,200},{392,200},{349,200},    /* 一只没有 EEEE */
+  {330,350},{262,350},                        /* 尾巴 QQ */
+  {262,350},{196,350},{262,350},              /* 真奇怪 QQQ */
+  {262,350},{196,350},{262,650},              /* 真奇怪 QQH */
 };
 #define N_NOTES  (sizeof(melody) / sizeof(Note))
-#define GAP_MS   40
+#define GAP_MS   60  /* breath between phrases */
 #define TICK_HZ  4000000UL
 
 static int      idx   = -1;
@@ -30,7 +38,7 @@ static void pwm_out(uint16_t freq)
     uint16_t arr = (uint16_t)(TICK_HZ / freq - 1);
     TIM3->ARR  = arr;
     TIM3->CNT  = 0;
-    TIM3->CCR3 = (uint16_t)(((uint32_t)arr * 5U) / 100U);  /* 5% duty — very quiet */
+    TIM3->CCR3 = (uint16_t)(((uint32_t)arr * 1U) / 100U);  /* 1% duty — minimal cross-talk */
   }
 }
 
