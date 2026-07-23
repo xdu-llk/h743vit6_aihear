@@ -50,7 +50,7 @@ public class MqttService extends Service {
     // ── MQTT broker 配置（可由 WebView 设置） ──
     public static String sBrokerHost = "broker-cn.emqx.io";
     public static int    sBrokerPort = 1883;
-    private static final int    KEEPALIVE_SEC = 60;
+    private static final int    KEEPALIVE_SEC = 30;
     private static final String TOPIC_ALERT_FILTER  = "aihear/v1/demo/+/alert";
     private static final String TOPIC_STATUS_FILTER = "aihear/v1/demo/+/status";
     private static final String TOPIC_LEGACY_DEVICE_ALERT_FILTER = "aihear/+/alert";
@@ -253,7 +253,7 @@ public class MqttService extends Service {
         running = true;
         mqttThread = new Thread(() -> {
             int backoff = 1;
-            int maxBackoff = 120;
+            int maxBackoff = 15;  // fast reconnects for demo stability
 
             while (running) {
                 try {
@@ -265,7 +265,7 @@ public class MqttService extends Service {
                     // ── 纯 TCP Socket ──
                     java.net.Socket sock = new java.net.Socket();
                     sock.connect(new InetSocketAddress(host, port), 10_000);
-                    sock.setSoTimeout(0);
+                    sock.setSoTimeout(30_000);  // 30s read timeout
 
                     OutputStream out = sock.getOutputStream();
                     InputStream  in  = sock.getInputStream();
