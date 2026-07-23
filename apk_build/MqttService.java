@@ -116,6 +116,8 @@ public class MqttService extends Service {
 
     // ── MQTT publish support (write to socket from outside mqtt-thread) ──
     private static volatile OutputStream sOutput = null;
+    static volatile long      sLastSendMs = 0;
+    static volatile boolean   forceReconnect = false;
     public  static volatile String sMonitoredDevice = "";  /* "" = all devices */
     public  static volatile boolean sMonitorAll = false;
     /** Build MQTT PUBLISH packet (QoS=0) */
@@ -145,9 +147,12 @@ public class MqttService extends Service {
                 if (pkt == null) return false;
                 out.write(pkt);
                 out.flush();
+                sLastSendMs = System.currentTimeMillis();
                 return true;
             } catch (Exception e) {
-                Log.w(TAG, "publish 失败: " + e.getMessage());
+                Log.w(TAG, "publish 失败, 触发重连: " + e.getMessage());
+                sOutput = null;
+                forceReconnect = true;
                 return false;
             }
         }
@@ -265,7 +270,7 @@ public class MqttService extends Service {
                     // ── 纯 TCP Socket ──
                     java.net.Socket sock = new java.net.Socket();
                     sock.connect(new InetSocketAddress(host, port), 10_000);
-                    sock.setSoTimeout(30_000);  // 30s read timeout
+                    sock.setSoTimeout(2000);  // 2s timeout — PINGREQ can fire between reads
 
                     OutputStream out = sock.getOutputStream();
                     InputStream  in  = sock.getInputStream();
@@ -313,35 +318,37 @@ public class MqttService extends Service {
                     updateConnStatus(2);
                     lastAlertByDevice.clear();
 
-                    // 心跳 timing
-                    long lastPingMs = System.currentTimeMillis();
+                    // 心跳 timing — MQTT keepalive 基于客户端发送，非接收
+                    sLastSendMs = System.currentTimeMillis();
                     long keepaliveMs = KEEPALIVE_SEC * 1000L;
 
                     // ── 读取循环 ──
+                    forceReconnect = false;
                     while (running) {
+                        if (forceReconnect) {
+                            Log.w(TAG, "publish 失败触发重连");
+                            break;
+                        }
                         long now = System.currentTimeMillis();
 
-                        // ── 发送 PINGREQ ──
-                        if (now - lastPingMs >= keepaliveMs) {
+                        // ── 发送 PINGREQ (基于上次发送时间，不是接收) ──
+                        if (now - sLastSendMs >= keepaliveMs) {
                             out.write(new byte[]{(byte)0xC0, 0x00});
                             out.flush();
-                            lastPingMs = now;
+                            sLastSendMs = now;
                             // 读 PINGRESP
                             byte[] pingResp = readExact(in, 2);
                             if (pingResp == null) {
                                 Log.w(TAG, "PINGRESP 超时，重连");
                                 break; // 退出内循环，触发重连
                             }
-                            lastPingMs = System.currentTimeMillis(); // 收到响应重置
                         }
 
                         // ── 等待并读取一个 MQTT 包 ──
                         byte[] pkt = readMqttPacket(in, keepaliveMs);
                         if (pkt == null) {
-                            // 超时，下一轮发 PINGREQ
-                            continue;
+                            continue;  // 超时，下一轮发 PINGREQ
                         }
-                        lastPingMs = System.currentTimeMillis(); // 任何包都算心跳
 
                         int pktType = (pkt[0] >> 4) & 0x0F;
                         switch (pktType) {
@@ -571,20 +578,18 @@ public class MqttService extends Service {
     private byte[] readExact(InputStream in, int n) {
         byte[] buf = new byte[n];
         int off = 0;
-        long deadline = System.currentTimeMillis() + 30_000; // 30s 超时
+        long deadline = System.currentTimeMillis() + 30_000;
         try {
             while (off < n && running) {
                 if (System.currentTimeMillis() > deadline) return null;
-                int avail = in.available();
-                if (avail > 0) {
-                    int r = in.read(buf, off, Math.min(n - off, avail));
-                    if (r < 0) return null;
-                    off += r;
-                } else {
-                    Thread.sleep(50);
-                }
+                int r = in.read(buf, off, n - off);
+                if (r < 0) return null;
+                off += r;
             }
             return (off == n) ? buf : null;
+        } catch (java.net.SocketTimeoutException e) {
+            // retry via deadline logic above, already handled
+            return null;
         } catch (Exception e) {
             return null;
         }
@@ -597,26 +602,26 @@ public class MqttService extends Service {
     private byte[] readMqttPacket(InputStream in, long timeoutMs) {
         try {
             long deadline = System.currentTimeMillis() + timeoutMs;
+            int firstByte = -1;
 
-            // 等待第一个字节（固定头）
-            while (in.available() == 0 && running) {
+            // 等待第一个字节（2s socket timeout, 循环等满 deadline）
+            while (running) {
                 if (System.currentTimeMillis() > deadline) return null;
-                Thread.sleep(50);
+                try {
+                    firstByte = in.read();
+                    if (firstByte < 0) throw new Exception("EOF");
+                    break;
+                } catch (java.net.SocketTimeoutException e) {
+                    continue;  // retry until deadline
+                }
             }
             if (!running) return null;
-
-            int firstByte = in.read();
-            if (firstByte < 0) throw new Exception("EOF");
 
             // 读取 Remaining Length
             int multiplier = 1;
             int remainingLen = 0;
             int rlBytes = 0;
             while (rlBytes < 4) {
-                while (in.available() == 0 && running) {
-                    if (System.currentTimeMillis() > deadline + 5000) return null;
-                    Thread.sleep(50);
-                }
                 if (!running) return null;
                 int b = in.read();
                 if (b < 0) throw new Exception("EOF in RL");

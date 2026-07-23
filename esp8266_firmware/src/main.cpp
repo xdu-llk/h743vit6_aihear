@@ -157,6 +157,8 @@ static void mqtt_reconnect() {
   if(mqtt.connected()) {
     mqtt.subscribe("aihear/cmd");
     publish_status();
+    /* Notify STM32 immediately — avoid 10s blind window */
+    Serial.printf("+STATUS:%d:%d\r\n",(WiFi.status()==WL_CONNECTED)?2:0,2);
   }
 }
 

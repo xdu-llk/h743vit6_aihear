@@ -9,13 +9,9 @@
 typedef struct { uint16_t freq; uint16_t dur_ms; } Note;
 
 static const Note melody[] = {
-  /* Brahms Lullaby (Guten Abend, gut Nacht) — low freqs, gentle */
-  {392,500},{440,400},{392,400},{330,600},  /* Good eve-ning, good night */
-  {330,400},{349,400},{294,600},{262,400},  /* With ros-es be-dight */
-  {294,400},{330,400},{349,400},{330,400},  /* With lil-ies o'er-spread */
-  {294,400},{330,400},{262,800},            /* Is ba-by's wee bed */
-  {440,400},{494,400},{440,400},{330,600},  /* Lay thee down now and rest */
-  {349,400},{392,400},{440,800},            /* May thy slum-ber be blest */
+  /* Soft 4-tone lullaby — minimal volume, sub-400Hz to avoid mic cross-talk */
+  {330,600},{294,400},{262,400},{294,800},
+  {330,600},{294,400},{262,400},{294,800},
 };
 #define N_NOTES  (sizeof(melody) / sizeof(Note))
 #define GAP_MS   40
@@ -34,7 +30,7 @@ static void pwm_out(uint16_t freq)
     uint16_t arr = (uint16_t)(TICK_HZ / freq - 1);
     TIM3->ARR  = arr;
     TIM3->CNT  = 0;
-    TIM3->CCR3 = (uint16_t)(((uint32_t)arr * 1U) / 10U);  /* 10% duty — quiet */
+    TIM3->CCR3 = (uint16_t)(((uint32_t)arr * 5U) / 100U);  /* 5% duty — very quiet */
   }
 }
 
