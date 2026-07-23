@@ -491,7 +491,7 @@ public class MqttService extends Service {
         out.write(buildSubscribe(topic, packetId));
         out.flush();
 
-        long deadline = System.currentTimeMillis() + 30_000;
+        long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline && running) {
             byte[] pkt = readMqttPacket(in, 30000);
             if (pkt == null) return false;
