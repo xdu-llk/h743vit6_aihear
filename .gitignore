@@ -50,4 +50,17 @@ docs/gen_docx.py
 
 # 桌面提交副本
 桌面提交/
+
+# 固件发布包
+releases/
+
+# Claude Code 自动生成
+.agents/
+.claude/
+
+# 一次性工具脚本
+tools/cleanup_ui.py
+tools/update_js.py
+tools/update_js2.py
+
 # KWS data
