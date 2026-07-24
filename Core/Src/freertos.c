@@ -60,6 +60,8 @@ static void vAudioInferTask(void *pvParameters)
 
   vTaskDelay(pdMS_TO_TICKS(1200));
 
+  Alarm_SetState(ALARM_STATE_ARMED);  /* boot into armed state — green blink */
+
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 

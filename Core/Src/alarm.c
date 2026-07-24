@@ -29,8 +29,12 @@ static uint8_t    buz_count;
 
 void Alarm_Init(void)
 {
+  state = ALARM_STATE_IDLE;
   RGB_SetColor(RGB_BLACK);
   Buzzer_Off();
+  led_on = 0;
+  buz_on = 0;
+  buz_count = 0;
   last_toggle = HAL_GetTick();
 }
 
