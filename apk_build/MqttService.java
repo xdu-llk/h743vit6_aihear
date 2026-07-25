@@ -14,8 +14,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Vibrator;
-import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 
 import java.io.InputStream;
@@ -83,8 +81,6 @@ public class MqttService extends Service {
 
     private Handler   mainHandler;
     private Vibrator  vibrator;
-    private TextToSpeech tts;
-    private boolean   ttsReady = false;
     private AlertDbHelper db;
     private PowerManager.WakeLock wakeLock;
     private AlarmReceiver stopReceiver;
@@ -166,7 +162,11 @@ public class MqttService extends Service {
 
     public static String getEnvData(String deviceId) {
         if (deviceId == null) return "{}";
-        String env = sDeviceEnv.get(DeviceRegistry.normalize(deviceId));
+        String id = DeviceRegistry.normalize(deviceId);
+        Long seen = sDeviceLastSeen.get(id);
+        // 超过 90 秒未收到设备数据 → 温湿度视为过期
+        if (seen == null || System.currentTimeMillis() - seen > 90_000) return "{}";
+        String env = sDeviceEnv.get(id);
         return env == null ? "{}" : env;
     }
 
@@ -186,22 +186,6 @@ public class MqttService extends Service {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AIHear:MQTT");
         wakeLock.acquire();
-
-        // TTS 语音播报
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                int result = tts.setLanguage(Locale.CHINESE);
-                if (result == TextToSpeech.LANG_MISSING_DATA ||
-                    result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.w(TAG, "TTS 中文不支持, result=" + result);
-                } else {
-                    ttsReady = true;
-                    Log.i(TAG, "TTS 就绪 (中文)");
-                }
-            } else {
-                Log.w(TAG, "TTS 初始化失败, status=" + status);
-            }
-        });
 
         createChannel();
 
@@ -241,7 +225,6 @@ public class MqttService extends Service {
             try { mqttThread.join(2000); } catch (InterruptedException ignored) {}
         }
         try { if (stopReceiver != null) unregisterReceiver(stopReceiver); } catch (Exception ignored) {}
-        if (tts != null) { tts.shutdown(); }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (db != null) { db.close(); }
         super.onDestroy();
@@ -852,9 +835,6 @@ public class MqttService extends Service {
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
                 .notify(notificationId, buildAlertNote(fDeviceId, fCls, fScore));
 
-            // TTS 语音播报
-            speakAlert(fDeviceId, fCls);
-
             // 震动
             if (vibrator != null) {
                 vibrator.vibrate(new long[]{0, 500, 200, 500, 200, 500, 200, 1000}, -1);
@@ -862,27 +842,13 @@ public class MqttService extends Service {
         });
     }
 
-    /** 停止告警（通知 + 震动 + TTS），但不断开 MQTT */
+    /** 停止告警（通知 + 震动），但不断开 MQTT */
     void stopAlarm() {
-        if (tts != null && ttsReady) tts.stop();
         if (vibrator != null) vibrator.cancel();
         NotificationManager nm =
             (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         for (int id : activeAlertNotifications) nm.cancel(id);
         activeAlertNotifications.clear();
-    }
-
-    private void speakAlert(String deviceId, String cls) {
-        if (tts == null || !ttsReady) return;
-        String alias = DeviceRegistry.getAlias(this, deviceId);
-        String room = (alias != null && !alias.isEmpty()) ? alias : "设备";
-        String text;
-        if (cls.startsWith("temp_high")) text = room + " 温度过高";
-        else if (cls.startsWith("temp_low")) text = room + " 温度过低";
-        else if (cls.startsWith("humi_high")) text = room + " 湿度过高";
-        else if (cls.startsWith("humi_low")) text = room + " 湿度过低";
-        else text = room + " 检测到婴儿哭声";
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "alert_" + System.currentTimeMillis());
     }
 
     private int alertNotificationId(String deviceId) {

@@ -324,7 +324,7 @@ body{background:var(--bg);color:var(--ink);letter-spacing:0}
       <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">开始分析</button>
       <div class="api-cfg">
         <label>DeepSeek API Key（已预置，可自行更换）</label>
-        <input type="password" id="apiKey" value="" placeholder="sk-xxxxxxxx">
+        <input type="password" id="apiKey" value="" placeholder="sk-xxxxxxxx" autocomplete="off">
         <button onclick="saveApiKey()">保存</button>
       </div>
     </div>
@@ -642,7 +642,7 @@ function runAiAnalysis(){
   var prompt='你是婴儿护理专家，同时懂环境健康。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近哭声: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计哭声: '+alerts.filter(function(a){var c=a.cls||'';return c.indexOf('baby_cry')>=0||c.indexOf('cry')>=0;}).length+' 次 / '+feeds.length+' 次喂养'+envStr+'\n\n请综合分析哭声规律、喂养间隔、温湿度趋势及其异常对宝宝舒适度的影响、综合护理建议。限300字。';
   fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-    body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
+    body:JSON.stringify({model:'deepseek-v4-pro',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
   }).then(function(r){return r.json()}).then(function(d){
     document.getElementById('aiResult').textContent=d.choices?d.choices[0].message.content:'失败: '+JSON.stringify(d);
     btn.textContent='开始分析';btn.disabled=false;

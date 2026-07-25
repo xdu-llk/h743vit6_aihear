@@ -8,7 +8,7 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | ✅ 完成 | HSE=8MHz, PLL→480MHz, 2分类 DS-CNN |
+| STM32 固件 | ✅ 完成 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 DS-CNN |
 | ESP8266 | ✅ 完成 | broker-cn.emqx.io, 已知问题: STM32复位后偶发连不上需拔插3.3V |
 | Android App | ✅ 完成 | 4Tab, MQTT, SQLite, WakeLock |
 | 训练管线 | ✅ 完成 | 99.67% val_acc, INT8量化 |
@@ -44,7 +44,7 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=8MHz, M=1/N=60/P=1)、MPU、IWDG |
+| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG |
 | `Core/Src/freertos.c` | 主任务调度 | 单任务+vTaskNotifyGiveFromISR唤醒、margin多级阈值、MQTT payload带置信度 |
 | `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲、Cache一致性(SCB_InvalidateDCache)、24bit I2S解码 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
