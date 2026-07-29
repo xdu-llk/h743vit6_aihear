@@ -2,7 +2,7 @@
 Audio preprocessing: slice long files, filter silence/noise, keep only valid 1s segments.
 Outputs clean 1s 16kHz mono WAV files.
 """
-import librosa, soundfile, os, glob, numpy as np
+import librosa, soundfile, os, glob, re, hashlib, numpy as np
 
 SR = 16000
 DUR = 1.0          # target 1 second
@@ -11,8 +11,18 @@ SAMPLES = int(SR * DUR)
 # --- thresholds ---
 RMS_MIN    = 0.01   # absolute minimum RMS (silence filter)
 
-DATA_IN  = r'd:/stm32cubemx/projects/h743vit6_aihear/training/data'
-DATA_OUT = r'd:/stm32cubemx/projects/h743vit6_aihear/training/processed'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_IN  = os.path.join(SCRIPT_DIR, 'data')
+DATA_OUT = os.path.join(SCRIPT_DIR, 'processed_v2')
+
+
+def source_group_id(filepath):
+    """Map an original WAV and all of its _augNN variants to one stable group."""
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    original_stem = re.sub(r'_aug\d+$', '', stem, flags=re.IGNORECASE)
+    safe_stem = re.sub(r'[^A-Za-z0-9_-]+', '_', original_stem).strip('_') or 'audio'
+    digest = hashlib.sha1(original_stem.lower().encode('utf-8')).hexdigest()[:10]
+    return f'{safe_stem[:40]}_{digest}'
 
 def is_valid_baby_cry(y):
     """Baby cry: tonal vocal sound, medium ZCR, low spectral flatness"""
@@ -68,6 +78,7 @@ def process_file(filepath, cls_name, idx_counter):
     total = len(y)
     duration = total / SR
     saved = []
+    source_group = source_group_id(filepath)
 
     # Choose validator and window size per class
     if cls_name == 'baby_cry':
@@ -81,7 +92,8 @@ def process_file(filepath, cls_name, idx_counter):
         y_padded = pad_or_trim(y)
         ok, msg = validator(y_padded)
         if ok:
-            out_path = os.path.join(DATA_OUT, cls_name, f"{idx_counter[0]:04d}.wav")
+            out_path = os.path.join(
+                DATA_OUT, cls_name, f"{source_group}_{idx_counter[0]:06d}.wav")
             soundfile.write(out_path, y_padded, SR)
             saved.append(out_path)
             idx_counter[0] += 1
@@ -110,7 +122,8 @@ def process_file(filepath, cls_name, idx_counter):
         if ok:
             if len(saved) == 0:
                 print(f"  OK {os.path.basename(filepath)[:50]} ({duration:.1f}s) -> win@{start/SR:.1f}s")
-            out_path = os.path.join(DATA_OUT, cls_name, f"{idx_counter[0]:04d}.wav")
+            out_path = os.path.join(
+                DATA_OUT, cls_name, f"{source_group}_{idx_counter[0]:06d}.wav")
             soundfile.write(out_path, chunk_padded, SR)
             saved.append(out_path)
             idx_counter[0] += 1

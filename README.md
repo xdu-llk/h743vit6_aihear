@@ -8,10 +8,9 @@
 
 ## 功能特性
 
-- 🍼 **婴儿哭声实时检测** — 边缘 AI 推理 (DS-CNN, 99.67% val_acc)，3 级动态投票降误报
+- 🍼 **婴儿哭声实时检测** — H743板端全INT8 DS-CNN推理，概率分级与真实时序复核
 - 🌡️ **温湿度环境监护** — 4 阈值告警 (温度 >30/<16°C, 湿度 >80/<30%)，独立冷却
 - 🏠 **多房间统一管理** — 单 App 同时监视多台设备，MQTT 设备级 topic 隔离
-- 🔊 **TTS 语音播报** — 告警时手机朗读"婴儿房01 检测到婴儿哭声"
 - 📊 **数据看板** — Chart.js 双折线图 (7天哭声+喂养 / 24h温湿度)
 - 🤖 **AI 分析** — DeepSeek API 综合哭声规律+温湿度+喂养建议
 - 🔒 **隐私保护** — 音频在 MCU 本地完成推理，不上传云端
@@ -27,9 +26,9 @@ INMP441麦克风 → I2S(PE4/5/6) → SAI1 DMA双缓冲 → 环形缓冲(16384)
   ↓
 40×96 float32特征 → TFLite Micro + CMSIS-NN 推理 (DS-CNN, 2分类)
   ↓
-3级动态推理 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App (通知+震动+TTS)
+3级动态推理 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App (通知+震动)
   ↓
-DHT11 温湿度 @10s → 4阈值判断 → 同上告警链路
+DHT11 温湿度 @2s → OLED刷新标记+4阈值判断 → 同上告警链路
 ```
 
 ---
@@ -44,7 +43,7 @@ DHT11 温湿度 @10s → 4阈值判断 → 同上告警链路
 | 温湿度 | DHT11 | 1 | 另一块待补焊 |
 | 显示 | SSD1306 128×64 OLED I2C | 2 | |
 | 指示灯 | RGB LED 共阴 5mm | 2 | 各串 220Ω |
-| 蜂鸣器 | 有源蜂鸣器 3.3V | 2 | TIM3 PWM |
+| 蜂鸣器 | 无源蜂鸣器 3.3V | 2 | TIM3 PWM非阻塞旋律 |
 | 按键 | 6×6mm 轻触按键 | 2 | 短按布防/撤防, 长按≥3s 复位 |
 | 调试器 | ST-Link V2 | 1 | |
 
@@ -99,7 +98,8 @@ bash apk_build/build_apk.sh
 ```bash
 cd training
 pip install torch librosa numpy sklearn tqdm
-python cache_features.py     # 预处理特征
+python preprocess_audio.py   # 按原始录音来源生成 processed_v2
+python cache_features.py     # 生成 feature_cache_v2
 python train_dscnn.py        # 训练 DS-CNN
 python reexport_v3.py        # 导出 C 数组 → Core/Src/dscnn_model.cc
 ```
@@ -117,7 +117,7 @@ h743vit6_aihear/
 │   ├── src/main.cpp
 │   └── platformio.ini
 ├── apk_build/               # Android 移动端
-│   ├── MqttService.java     # MQTT 前台 Service + TTS + env 聚合
+│   ├── MqttService.java     # MQTT 前台 Service + 通知/震动 + env 聚合
 │   ├── AlertDbHelper.java   # SQLite (alerts + feeding + env_hourly)
 │   ├── AndroidBridge.java   # JS↔Native 桥接
 │   ├── MainActivity.java    # WebView 容器
@@ -132,9 +132,9 @@ h743vit6_aihear/
 │   └── reexport_v3.py       # PyTorch→Keras→TFLite INT8→C 数组
 ├── tools/                   # 开发验证工具
 │   └── mqtt_e2e_test.py     # MQTT 端到端验证脚本
-├── docs/                    # 物料清单 + 协议文档 + 竞赛报告
+├── docs/                    # 物料清单 + 协议文档 + 国赛推进路线
 ├── Makefile                 # STM32 构建系统 (arm-none-eabi-gcc)
-├── STM32H743XX_FLASH.ld     # 自定义链接脚本 (tensor_arena + ring_buf)
+├── STM32H743XX_FLASH.ld     # 自定义链接脚本 (tensor_arena + audio_d2)
 ├── startup_stm32h743xx.s    # 启动汇编
 ├── CLAUDE.md                # 项目详细技术文档
 └── README.md                # 本文档
@@ -161,8 +161,9 @@ h743vit6_aihear/
 **婴儿哭声 — 3 级动态推理：**
 ```
 prob_cry ≥ 90% → 即时 ALERT (蜂鸣器+RGB+OLED+MQTT, 20s 冷却)
-60% ≤ prob < 90% → 滑动投票: 0.2s 后补推 2 次, 3 次平均 ≥ 80% → ALERT
-prob < 60% → NORMAL (跳过)
+75% ≤ prob < 90% → 每获得约200ms新音频后补推，共3个真实时间窗
+复核通过 → 任一窗≥90%，或平均≥85%，或最高≥85%且第二高≥60%
+prob < 75% → NORMAL (跳过)
 ```
 
 **温湿度 — 阈值告警（撤防时跳过）：**
@@ -184,9 +185,8 @@ humi < 30%  → humi_low
 
 - 基于 TCP Socket 手写 MQTT 3.1.1 协议栈（零第三方 MQTT 库）
 - 前台 Service + WakeLock 息屏保活
-- TTS 语音播报（房间名 + 告警类型）
 - 4 Tab：告警(首页)、喂养、统计(Chart.js 双折线图)、AI 分析(DeepSeek)
-- env_hourly 聚合：每 10s 更新 SQLite，每小时一行 (avg/max/min)
+- env_hourly 聚合：每 2s 接收环境样本并更新 SQLite，每小时一行 (avg/max/min)
 - 去重策略：STM32 20s(哭)/5min(env) / 通知 20s(哭)/5min(env) / 入库 10min
 
 ### MQTT 通信架构

@@ -1,4 +1,4 @@
-"""Re-export TFLite int8 — 3-class (baby_cry / help / other), Keras path."""
+"""Re-export the two-class competition model as a fully INT8 TFLite model."""
 import torch, numpy as np, tensorflow as tf
 import librosa, glob, sys
 
@@ -113,8 +113,7 @@ def load_calib_samples(cls, count):
     return samples
 
 calib.extend(load_calib_samples('baby_cry', 60))
-calib.extend(load_calib_samples('distress_shout', 60))
-calib.extend(load_calib_samples('other', 120))
+calib.extend(load_calib_samples('other', 60))
 print(f"  {len(calib)} samples")
 
 # ---------- TFLite int8 ----------

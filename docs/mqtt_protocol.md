@@ -52,3 +52,7 @@ filter `aihear/+/alert`, converts a suffix such as `03CB03` to
 or unattributable events. New ESP firmware publishes v1 plus the global topic
 for old App compatibility. MQTT remains plaintext in the competition build;
 TLS and per-device ACLs remain tracked under P0-11.
+
+The ESP8266 bridge uses PubSubClient MQTT QoS 0. It retries once when the local
+publish call fails, but there is no broker PUBACK; documentation and demos must
+not describe this path as QoS 1.

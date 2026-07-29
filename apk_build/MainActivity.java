@@ -15,6 +15,7 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIF = 1001;
     private WebView webView;
     private AndroidBridge bridge;
+    private MqttService.AlertListener alertListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +48,12 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         bridge  = new AndroidBridge(this, webView);
+        alertListener = (cls, score) -> runOnUiThread(() -> {
+            if (webView == null) return;
+            String js = "if(typeof onNewAlert==='function')onNewAlert(" +
+                org.json.JSONObject.quote(cls) + "," + Double.toString(score) + ");";
+            webView.evaluateJavascript(js, null);
+        });
         setContentView(webView);
 
         WebSettings ws = webView.getSettings();
@@ -71,6 +78,18 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (alertListener != null) MqttService.addJsListener(alertListener);
+    }
+
+    @Override
+    protected void onStop() {
+        if (alertListener != null) MqttService.removeJsListener(alertListener);
+        super.onStop();
     }
 
     @Override

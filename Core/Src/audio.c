@@ -8,14 +8,15 @@
 /* Task handle — set by freertos.c, used by ISR callbacks */
 extern TaskHandle_t hAudioTask;
 
-/* DMA 双缓冲必须放 AXI SRAM (0x24000000)，DTCM DDR 不能访问 */
-#define DMA_BASE 0x30020000UL  /* RAM_D2: avoid overlapping tensor_arena in AXI SRAM */
-static uint32_t * const dmabuf = (uint32_t *)DMA_BASE;
-
-/* 环形缓冲区 — D2 SRAM (DTCM 不够放 16K 样本) */
-#define RING_BASE 0x30010000UL
-static int32_t * const ring = (int32_t *)RING_BASE;
+/* DMA、环形缓冲和推理快照统一由链接脚本放入 D2 SRAM。 */
+__attribute__((section(".audio_d2"), aligned(32)))
+static uint32_t dmabuf[AUDIO_BUF_SIZE * 2];
+__attribute__((section(".audio_d2"), aligned(32)))
+static int32_t ring[RING_BUF_SIZE];
+__attribute__((section(".audio_d2"), aligned(32)))
+static int32_t inference_snapshot[AUDIO_WINDOW_SAMPLES];
 static volatile uint32_t wr = 0;
+static volatile uint32_t sample_count = 0;
 
 /* Debug: DMA ISR fire counter */
 volatile uint32_t dma_isr_count = 0;
@@ -41,6 +42,7 @@ static void copy_to_ring(const uint32_t *src, int count)
     ring[wr] = i2s_to_pcm(src[i]);
     wr = (wr + 1) & (RING_BUF_SIZE - 1);
   }
+  sample_count += (uint32_t)count;
 }
 
 void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
@@ -103,4 +105,24 @@ int Audio_ReadSamples(int32_t *dst, int offset, int count)
     dst[i] = ring[(start + i) & (RING_BUF_SIZE - 1)];
   }
   return 0;
+}
+
+const int32_t *Audio_CaptureWindow(void)
+{
+  if (sample_count < AUDIO_WINDOW_SAMPLES) return NULL;
+
+  /* The ISR writes the ring in 256-sample blocks. Masking interrupts for this
+     short copy guarantees that all 96 FFT frames share one write position. */
+  taskENTER_CRITICAL();
+  uint32_t start = (wr - AUDIO_WINDOW_SAMPLES) & (RING_BUF_SIZE - 1);
+  for (uint32_t i = 0; i < AUDIO_WINDOW_SAMPLES; i++) {
+    inference_snapshot[i] = ring[(start + i) & (RING_BUF_SIZE - 1)];
+  }
+  taskEXIT_CRITICAL();
+  return inference_snapshot;
+}
+
+uint32_t Audio_GetSampleCount(void)
+{
+  return sample_count;
 }

@@ -1,13 +1,11 @@
-"""Extract Mel features from 1s WAV chunks and cache as .npy for 3-class training."""
+"""Extract Mel features from 1s WAV chunks for the two-class competition model."""
 import numpy as np, librosa, os, glob
 from tqdm import tqdm
 
 SR, N_MELS, FRAMES, N_FFT, HOP = 16000, 40, 96, 512, 160
-DATA = 'processed'
-CACHE = 'feature_cache'
-CLASSES = ['baby_cry', 'help', 'other']
-# Map class name → data subdirectory (help data lives in distress_shout/)
-DATA_DIRS = {'baby_cry': 'baby_cry', 'help': 'help', 'other': 'other'}
+DATA = 'processed_v2'
+CACHE = 'feature_cache_v2'
+CLASSES = ['baby_cry', 'other']
 
 
 def extract(wav_path):
@@ -25,7 +23,7 @@ def extract(wav_path):
 def main():
     total = 0
     for cls in CLASSES:
-        data_dir = os.path.join(DATA, DATA_DIRS.get(cls, cls))
+        data_dir = os.path.join(DATA, cls)
         files = sorted(glob.glob(os.path.join(data_dir, '*.wav')))
         if not files:
             print(f"  [SKIP] {cls} ({data_dir}): no chunks found")

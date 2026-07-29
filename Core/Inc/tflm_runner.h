@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-void  TFLM_Init(void);
+bool  TFLM_Init(void);
 bool  TFLM_Infer(const float* input, float* output);
 int   TFLM_GetTopClass(const float* output);
 

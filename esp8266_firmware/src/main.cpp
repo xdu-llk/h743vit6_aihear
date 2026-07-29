@@ -1,5 +1,5 @@
 /*
- * AI Hear Bridge v4 + QoS1 — WiFiManager + device‑level MQTT with reliable delivery
+ * AI Hear Bridge v4 — WiFiManager + device-level MQTT with QoS 0 retry delivery
  */
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -77,7 +77,9 @@ static void handleSave() {
 
 /* Keep all MQTT stream parsing inside PubSubClient. Reading PUBACK bytes
  * directly here can consume an interleaved App command and corrupt the stream. */
-static bool publish_reliable(const char *topic, const char *payload, bool retain = false) {
+/* PubSubClient publishes at MQTT QoS 0. This retry covers a local socket write
+   failure; it is not a broker acknowledgement and must not be described as QoS 1. */
+static bool publish_with_retry(const char *topic, const char *payload, bool retain = false) {
   if (!mqtt.connected()) return false;
   if (mqtt.publish(topic, payload, retain)) return true;
   mqtt.loop();
@@ -110,14 +112,14 @@ static void parse_command(const char *cmd) {
         "{\"eventId\":\"%s-%08lx-%lu\",\"class\":\"%s\",\"score\":%.3f,\"uptimeMs\":%lu}",
         mqtt_client_id,(unsigned long)boot_id,(unsigned long)pub_seq,cls,
         (double)score,(unsigned long)millis());
-      ok=publish_reliable(alert_topic,json);
+      ok=publish_with_retry(alert_topic,json);
       if(strstr(sep+1,"baby_cry")||strstr(sep+1,"help")){last_alert=sep+1;last_alert_time=millis();}
     } else if(strcmp(t,"aihear/env")==0){
       /* env data → device‑scoped topic only, no global broadcast */
-      ok=publish_reliable(env_topic,sep+1,false);
+      ok=publish_with_retry(env_topic,sep+1,false);
     } else {
       bool retain = strstr(t, "/state") != nullptr;
-      ok=publish_reliable(t,sep+1,retain);
+      ok=publish_with_retry(t,sep+1,retain);
     }
     if(!ok){Serial.println("+ERR:PUB_FAIL");return;}
     Serial.printf("+PUBACK:%lu\r\n",(unsigned long)pub_seq);

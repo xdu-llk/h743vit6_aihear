@@ -8,19 +8,18 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | ✅ 完成 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 DS-CNN |
-| ESP8266 | ✅ 完成 | broker-cn.emqx.io, 已知问题: STM32复位后偶发连不上需拔插3.3V |
+| STM32 固件 | 代码稳定/待板测 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 INT8 DS-CNN |
+| ESP8266 | 代码稳定/待板测 | broker-cn.emqx.io, RST接PA2并支持冷启动超时硬复位 |
 | Android App | ✅ 完成 | 4Tab, MQTT, SQLite, WakeLock |
-| 训练管线 | ✅ 完成 | 99.67% val_acc, INT8量化 |
+| 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
 | PCB+外壳 | ✅ 完成 | 共阴RGB LED, 两颗轻触按键 |
-| 比赛报告 | ✅ 完成 | docs/竞赛报告全文.md |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
 
 ## 待处理
 
-1. ESP8266 RST悬空 → STM32复位后需拔插3.3V恢复（下一版PCB接GPIO）
-2. 串口 WiFi 日志包含 ESP8266 启动信息（噪声，不影响功能）
-3. 模型可扩展多分类（玻璃破碎/门撞击等）
+1. 在实板上验证音频快照、200ms时序复核和温湿度2s刷新
+2. 反复测试 STM32/ESP8266 单独复位后的 PA2 自动恢复
+3. 国赛阶段保持二分类；多分类、OV2640、TFT和新增传感器按板端价值逐项推进
 
 ---
 
@@ -33,7 +32,7 @@ INMP441麦克风 → I2S(PE4/5/6) → SAI1 DMA双缓冲 → 环形缓冲(16384)
   ↓
 40×96 float32特征 → TFLite Micro + CMSIS-NN 推理 (DS-CNN, 2分类)
   ↓
-margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App (系统通知+震动)
+prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/OLED → ESP8266 MQTT → Android
 ```
 
 ---
@@ -45,13 +44,13 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
 | `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG |
-| `Core/Src/freertos.c` | 主任务调度 | 单任务+vTaskNotifyGiveFromISR唤醒、margin多级阈值、MQTT payload带置信度 |
-| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲、Cache一致性(SCB_InvalidateDCache)、24bit I2S解码 |
+| `Core/Src/freertos.c` | 主任务调度 | 幅度门控、概率分级、真实200ms时序复核、MQTT payload带置信度 |
+| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | 单字节UART中断+环形缓冲+行解析、+PUB协议 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
-| `Core/Src/dscnn_model.cc` | 模型权重 | DS-CNN float32 C数组(275KB) |
+| `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
 ### 内存布局
 
@@ -59,16 +58,15 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 |------|------|------|------|
 | DTCM | 0x20000000 | 128KB | 栈/BSS/heap |
 | AXI SRAM | 0x24000000 | 512KB | `.tensor_arena` (512KB) |
-| D2 SRAM | 0x30000000 | 288KB | ring[16384]@0x30010000, dmabuf@0x30020000 |
+| D2 SRAM | 0x30000000 | 288KB | `.audio_d2`: DMA缓冲、16384采样环形缓冲、15712采样快照 |
 
 ### 告警逻辑
 
 ```
-margin = |scores[0] - scores[1]|
-margin >= 0.8 → ALERT (蜂鸣器+MQTT发布baby_cry:0.95 + 5s冷却)
-margin >= 0.5 → MAYBE (仅printf)
-margin <  0.5 → WEAK
-top == 1     → NORMAL
+prob_cry >= 90% → 立即 ALERT，20s冷却
+75% <= prob_cry < 90% → 每获得3200个新采样点（约200ms）复核一次，共3窗
+复核通过条件 → 任一窗>=90%，或三窗平均>=85%，或最高>=85%且第二高>=60%
+prob_cry < 75% → NORMAL
 ```
 
 ---
@@ -84,6 +82,7 @@ top == 1     → NORMAL
 - **双模式**: AP配网(`AIHear_Setup`热点+网页配网) / STA连接+MQTT
 - **UART协议**: `+PUB:topic:payload` 文本协议，115200 baud
 - **MQTT Broker**: `broker-cn.emqx.io:1883` (与Android/Flask统一)
+- **发布语义**: PubSubClient QoS 0；失败时本地重试一次，不宣称Broker确认
 - **设备ID**: `aihear_03cb03` (MAC: 2c:3a:e8:03:cb:03)
 - **告警链路**: STM32检测到哭声 → UART发 `+PUB:aihear/alert:baby_cry:0.95` → ESP8266通过MQTT发布到 `broker-cn.emqx.io` → Android App收到后系统通知+震动
 - **GPIO0长按5秒**: 清除WiFi凭据，恢复AP配网模式
@@ -108,7 +107,7 @@ AlertDbHelper.java (SQLite: alerts + feeding 双表)
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1通信、WakeLock息屏保活、10s通知冷却+10min入库去重 |
+| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1通信、WakeLock、哭声20s/环境5min通知冷却、10min入库去重 |
 | `AlertDbHelper.java` | SQLite持久化 | 双表+时间索引、直接返回JSONArray |
 | `AndroidBridge.java` | JS桥接 | WeakReference防泄漏、try-catch全包裹、双向通信 |
 | `MainActivity.java` | Activity容器 | 全屏沉浸、通知权限适配、WebView安全配置 |
@@ -127,8 +126,8 @@ AlertDbHelper.java (SQLite: alerts + feeding 双表)
 
 | 层级 | 冷却 | 作用 |
 |------|------|------|
-| STM32 | 5秒 | 推理出告警后暂不发MQTT |
-| Android通知 | 10秒 | 弹窗+震动不重复 |
+| STM32 | 哭声20秒；环境5分钟 | 告警后抑制重复发送 |
+| Android通知 | 哭声20秒；环境5分钟 | 弹窗+震动不重复 |
 | Android入库 | 10分钟 | SQLite同类告警只记一次 |
 
 ### 构建

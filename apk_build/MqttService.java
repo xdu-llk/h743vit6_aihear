@@ -304,6 +304,8 @@ public class MqttService extends Service {
                     // 心跳 timing — MQTT keepalive 基于客户端发送，非接收
                     sLastSendMs = System.currentTimeMillis();
                     long keepaliveMs = KEEPALIVE_SEC * 1000L;
+                    boolean pingOutstanding = false;
+                    long pingDeadlineMs = 0;
 
                     // ── 读取循环 ──
                     forceReconnect = false;
@@ -314,21 +316,25 @@ public class MqttService extends Service {
                         }
                         long now = System.currentTimeMillis();
 
-                        // ── 发送 PINGREQ (基于上次发送时间，不是接收) ──
-                        if (now - sLastSendMs >= keepaliveMs) {
+                        if (pingOutstanding && now >= pingDeadlineMs) {
+                            Log.w(TAG, "PINGRESP 超时，重连");
+                            break;
+                        }
+
+                        // PINGRESP 也走统一包解析，避免吞掉先到达的 PUBLISH。
+                        if (!pingOutstanding && now - sLastSendMs >= keepaliveMs) {
                             out.write(new byte[]{(byte)0xC0, 0x00});
                             out.flush();
                             sLastSendMs = now;
-                            // 读 PINGRESP
-                            byte[] pingResp = readExact(in, 2);
-                            if (pingResp == null) {
-                                Log.w(TAG, "PINGRESP 超时，重连");
-                                break; // 退出内循环，触发重连
-                            }
+                            pingOutstanding = true;
+                            pingDeadlineMs = now + 10_000;
                         }
 
                         // ── 等待并读取一个 MQTT 包 ──
-                        byte[] pkt = readMqttPacket(in, keepaliveMs);
+                        long readTimeout = pingOutstanding
+                            ? Math.max(1L, pingDeadlineMs - System.currentTimeMillis())
+                            : keepaliveMs;
+                        byte[] pkt = readMqttPacket(in, readTimeout);
                         if (pkt == null) {
                             continue;  // 超时，下一轮发 PINGREQ
                         }
@@ -404,6 +410,7 @@ public class MqttService extends Service {
                                 break;
                             }
                             case 13: // PINGRESP
+                                pingOutstanding = false;
                                 Log.v(TAG, "PINGRESP");
                                 break;
                             default:
@@ -865,15 +872,28 @@ public class MqttService extends Service {
     // JS 回调（通知 WebView 有新告警）
     // ═══════════════════════════════════════════════════════════════
 
-    private static final List<Runnable> jsListeners = new ArrayList<>();
+    interface AlertListener {
+        void onAlert(String cls, double score);
+    }
 
-    static void addJsListener(Runnable r) { synchronized (jsListeners) { jsListeners.add(r); } }
-    static void removeJsListener(Runnable r) { synchronized (jsListeners) { jsListeners.remove(r); } }
+    private static final List<AlertListener> jsListeners = new ArrayList<>();
+
+    static void addJsListener(AlertListener listener) {
+        synchronized (jsListeners) {
+            if (!jsListeners.contains(listener)) jsListeners.add(listener);
+        }
+    }
+
+    static void removeJsListener(AlertListener listener) {
+        synchronized (jsListeners) { jsListeners.remove(listener); }
+    }
 
     private void notifyJsListeners(String cls, double score) {
+        List<AlertListener> listeners;
         synchronized (jsListeners) {
-            for (Runnable r : jsListeners) r.run();
+            listeners = new ArrayList<>(jsListeners);
         }
+        for (AlertListener listener : listeners) listener.onAlert(cls, score);
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -135,7 +135,10 @@ int main(void)
          PREPROC_NUM_MELS, PREPROC_NUM_FRAMES);
 
   printf("[TFLM] Initializing...\n");
-  TFLM_Init();
+  if (!TFLM_Init()) {
+    printf("[TFLM] Fatal initialization error.\r\n");
+    Error_Handler();
+  }
   printf("[TFLM] Ready.\n");
 
   /* DS-CNN model — input 40x96, output 2-class (baby_cry/other) */
@@ -146,7 +149,7 @@ int main(void)
   __HAL_UART_FLUSH_DRREGISTER(&huart4);
 
   WifiIoT_Init();
-  HAL_Delay(200);  /* let UART4 settle after ESP32 boot burst */
+  HAL_Delay(200);  /* let UART4 settle after ESP8266 boot burst */
 
   printf("[MQTT] Waiting for ESP8266...\r\n");
   for (int t = 0; t < 40; t++) {
@@ -162,12 +165,12 @@ int main(void)
     WifiIoT_Publish("aihear/test", "hello_from_stm32");
     printf("[MQTT] Test publish sent\r\n");
   } else {
-    printf("[MQTT] ESP32 not responding\r\n");
+    printf("[MQTT] ESP8266 not responding; PA2 auto-reset remains active\r\n");
   }
 
-  /* Wait for ring buffer to fill (DMA needs ~500ms for 8192 samples @ 16kHz) */
+  /* Wait for a complete 15712-sample inference window (~0.982 s). */
   printf("[AUDIO] Waiting for ring buffer to fill...\r\n");
-  HAL_Delay(600);
+  HAL_Delay(1000);
   printf("[AUDIO] Ready.\r\n");
 
   /* IWDG: ~8s watchdog, auto-reset if main loop hangs */

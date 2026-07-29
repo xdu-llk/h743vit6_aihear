@@ -10,6 +10,7 @@ extern const int g_model_len;
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "main.h"
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace {
@@ -32,16 +33,60 @@ __attribute__((section(".tensor_arena"), aligned(16)))
 uint8_t arena[kArenaSize];
 tflite::MicroInterpreter* interp = nullptr;
 
+bool HasShape(const TfLiteTensor* tensor, const int* expected, int rank) {
+  if (!tensor || !tensor->dims || tensor->dims->size != rank) return false;
+  for (int i = 0; i < rank; ++i) {
+    if (tensor->dims->data[i] != expected[i]) return false;
+  }
+  return true;
+}
+
 }  // namespace
 
-void TFLM_Init(void) {
+bool TFLM_Init(void) {
+  interp = nullptr;
   memset(arena, 0, kArenaSize);
   const tflite::Model* m = ::tflite::GetModel(g_model);
-  static Resolver r; RegisterOps(r);
+  if (!m || m->version() != TFLITE_SCHEMA_VERSION) {
+    printf("[TFLM] Schema mismatch: model=%ld runtime=%d\r\n",
+           m ? (long)m->version() : -1L, TFLITE_SCHEMA_VERSION);
+    return false;
+  }
+
+  static Resolver r;
+  if (RegisterOps(r) != kTfLiteOk) {
+    printf("[TFLM] Operator registration failed\r\n");
+    return false;
+  }
   __DSB(); __ISB();
   static tflite::MicroInterpreter si(m, r, arena, kArenaSize);
+  if (si.AllocateTensors() != kTfLiteOk) {
+    printf("[TFLM] AllocateTensors failed (arena=%d bytes)\r\n", kArenaSize);
+    return false;
+  }
+
+  TfLiteTensor* in = si.input(0);
+  TfLiteTensor* out = si.output(0);
+  const int input_shape[] = {1, 40, 96, 1};
+  const int output_shape[] = {1, 2};
+  if (!in || in->type != kTfLiteInt8 || !HasShape(in, input_shape, 4) ||
+      !in->data.int8 || in->params.scale <= 0.0f) {
+    printf("[TFLM] Invalid input tensor; expected INT8 [1,40,96,1]\r\n");
+    return false;
+  }
+  if (!out || out->type != kTfLiteInt8 || !HasShape(out, output_shape, 2) ||
+      !out->data.int8 || out->params.scale <= 0.0f) {
+    printf("[TFLM] Invalid output tensor; expected INT8 [1,2]\r\n");
+    return false;
+  }
+
   interp = &si;
-  interp->AllocateTensors();
+  printf("[TFLM] arena used=%lu/%d bytes\r\n",
+         (unsigned long)si.arena_used_bytes(), kArenaSize);
+  printf("[TFLM] INT8 input scale=%.8f zp=%ld, output scale=%.8f zp=%ld\r\n",
+         (double)in->params.scale, (long)in->params.zero_point,
+         (double)out->params.scale, (long)out->params.zero_point);
+  return true;
 }
 
 bool TFLM_Infer(const float* input, float* output) {

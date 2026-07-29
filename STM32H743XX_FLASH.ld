@@ -207,13 +207,13 @@ SECTIONS
     . = ALIGN(4);
   } >RAM
 
-  /* Audio ring buffer — AXI SRAM, 64KB for 1s@16kHz */
-  .ring_buf (NOLOAD) :
+  /* SAI DMA, audio ring and immutable inference snapshot in D2 SRAM. */
+  .audio_d2 (NOLOAD) :
   {
-    . = ALIGN(16);
-    *(.ring_buf)
-    . = ALIGN(16);
-  } >RAM
+    . = ALIGN(32);
+    *(.audio_d2)
+    . = ALIGN(32);
+  } >RAM_D2
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

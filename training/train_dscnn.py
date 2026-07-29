@@ -1,4 +1,4 @@
-"""Train DS-CNN for 3-class audio classification: baby_cry / help / other.
+"""Train the competition DS-CNN: baby_cry / other.
 
 Optimizations:
   - MixUp (α=0.2) — sample blending for small-dataset generalization
@@ -18,10 +18,25 @@ from tqdm import tqdm
 
 # ========== Config (matching STM32 preproc exactly) ==========
 SR, N_MELS, FRAMES, N_FFT, HOP = 16000, 40, 96, 512, 160
-CLASSES   = ['baby_cry', 'help', 'other']
+CLASSES   = ['baby_cry', 'other']
 BATCH, EP = 64, 100
-DATA_ROOT = 'feature_cache'
-DEVICE    = torch.device('cuda')
+DATA_ROOT = 'feature_cache_v2'
+SEED      = 42
+DEVICE    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
 
 # ========== Audio Augmentation ==========
 class AudioAugment:
@@ -184,22 +199,29 @@ def train():
     # All chunks from the same source WAV stay together (no data leakage)
     def extract_source(path):
         basename = os.path.splitext(os.path.basename(path))[0]
-        # Strip trailing _NNN (3-digit chunk index)
-        m = re.match(r'(.+)_(\d{3})$', basename)
+        if basename.isdigit():
+            raise RuntimeError(
+                'Legacy numeric feature cache has no source identity. '
+                'Re-run preprocess_audio.py and cache_features.py before training.')
+        # New preprocessing emits {source_group}_{global_chunk_index}.
+        # The source group strips _augNN from the original WAV first.
+        m = re.match(r'(.+)_([0-9]+)$', basename)
         return m.group(1) if m else basename
 
     # Group paths by source
     groups = defaultdict(list)
     for p, l in zip(paths, labels_list):
-        groups[extract_source(p)].append((p, l))
+        groups[(l, extract_source(p))].append((p, l))
 
     group_ids = list(groups.keys())
+    group_labels = [group_id[0] for group_id in group_ids]
     n_sources = len(group_ids)
     print(f'  Sources: {n_sources} (avg {total/n_sources:.1f} chunks/source)')
 
     # Split source groups into train/val
     train_groups, val_groups = train_test_split(
-        group_ids, test_size=0.2, random_state=42)
+        group_ids, test_size=0.2, random_state=SEED,
+        stratify=group_labels)
 
     tp, tl = [], []
     for g in train_groups:
@@ -229,10 +251,17 @@ def train():
     val_ds = NpyDataset(vp, vl, augment=False)
 
     sample_weights = [1.0 / (counts[l] + 1) for l in tl]
-    sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
+    loader_generator = torch.Generator().manual_seed(SEED)
+    sampler = WeightedRandomSampler(
+        sample_weights, len(sample_weights), replacement=True,
+        generator=loader_generator)
 
-    tr = DataLoader(train_ds, BATCH, sampler=sampler, num_workers=4, persistent_workers=True)
-    va = DataLoader(val_ds, BATCH, shuffle=False, num_workers=4, persistent_workers=True)
+    tr = DataLoader(train_ds, BATCH, sampler=sampler, num_workers=4,
+                    persistent_workers=True, worker_init_fn=seed_worker,
+                    generator=loader_generator)
+    va = DataLoader(val_ds, BATCH, shuffle=False, num_workers=4,
+                    persistent_workers=True, worker_init_fn=seed_worker,
+                    generator=loader_generator)
 
     model = DSCNN(nc=len(CLASSES)).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())

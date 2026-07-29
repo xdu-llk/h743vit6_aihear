@@ -13,6 +13,7 @@ static I2C_HandleTypeDef hi2c2;
 static float env_temp_c;
 static float env_humi_pct;
 static uint8_t env_valid;
+static uint8_t env_refresh_phase;
 
 static void oled_cmd(uint8_t c) {
   uint8_t buf[2] = {0x00, c};
@@ -147,6 +148,7 @@ void OLED_SetEnvironment(float temp_c, float humi_pct, uint8_t valid) {
   env_temp_c = temp_c;
   env_humi_pct = humi_pct;
   env_valid = valid;
+  if (valid) env_refresh_phase ^= 1U;
 }
 
 void OLED_ShowStatus(const char *state, const char *cls, float dbfs) {
@@ -180,8 +182,9 @@ void OLED_ShowStatus(const char *state, const char *cls, float dbfs) {
   oled_cmd(0xB6); oled_cmd(0x00); oled_cmd(0x10);
   for (uint8_t x = 0; x < 128; x++) oled_dat(0x00);
   if (env_valid) {
-    snprintf(buf, sizeof(buf), "T:%.0fC H:%.0f%%",
-             (double)env_temp_c, (double)env_humi_pct);
+    snprintf(buf, sizeof(buf), "T:%.0fC H:%.0f%% %c",
+             (double)env_temp_c, (double)env_humi_pct,
+             env_refresh_phase ? '*' : '.');
   } else {
     snprintf(buf, sizeof(buf), "T:--C H:--%%");
   }

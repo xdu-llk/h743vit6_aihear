@@ -5,10 +5,13 @@
 
 #define AUDIO_BUF_SIZE    256   // 半帧音频样本数
 #define RING_BUF_SIZE     16384  // 环形缓冲区，必须是2的幂 (96帧=15712样本)
+#define AUDIO_WINDOW_SAMPLES 15712  // 512 + (96 - 1) * 160
 
 void     Audio_Init(void);
 uint32_t Audio_GetPeak(void);
 float    Audio_GetDBFS(void);
 int      Audio_ReadSamples(int32_t *dst, int offset, int count);
+const int32_t *Audio_CaptureWindow(void);
+uint32_t Audio_GetSampleCount(void);
 
 #endif

@@ -8,19 +8,18 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | ✅ 完成 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 DS-CNN, 温湿度告警 |
-| ESP8266 | ✅ 完成 | broker-cn.emqx.io, 已知问题: STM32复位后偶发连不上需拔插3.3V |
+| STM32 固件 | 代码稳定/待板测 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 INT8 DS-CNN, 温湿度告警 |
+| ESP8266 | 代码稳定/待板测 | broker-cn.emqx.io, RST接PA2并支持冷启动超时硬复位 |
 | Android App | ✅ 完成 | 4Tab, MQTT, SQLite, WakeLock |
-| 训练管线 | ✅ 完成 | 99.67% val_acc, INT8量化 |
+| 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
 | PCB+外壳 | ✅ 完成 | 共阴RGB LED, 两颗轻触按键 |
-| 比赛报告 | ✅ 完成 | docs/竞赛报告全文.md |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
 
 ## 待处理
 
-1. ESP8266 RST悬空 → STM32复位后需拔插3.3V恢复（下一版PCB接GPIO）
-2. 串口 WiFi 日志包含 ESP8266 启动信息（噪声，不影响功能）
-3. 模型可扩展多分类（玻璃破碎/门撞击等）
+1. 在实板上验证音频快照、200ms时序复核和温湿度2s刷新
+2. 反复测试 STM32/ESP8266 单独复位后的 PA2 自动恢复
+3. 国赛阶段保持二分类；多分类、OV2640、TFT和新增传感器按板端价值逐项推进
 
 ---
 
@@ -33,7 +32,7 @@ INMP441麦克风 → I2S(PE4/5/6) → SAI1 DMA双缓冲 → 环形缓冲(16384)
   ↓
 40×96 float32特征 → TFLite Micro + CMSIS-NN 推理 (DS-CNN, 2分类)
   ↓
-margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App (系统通知+震动)
+prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/OLED → ESP8266 MQTT → Android
 ```
 
 ---
@@ -45,13 +44,13 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
 | `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG (boot 1.5s + run 8s) |
-| `Core/Src/freertos.c` | 主任务调度 | 单任务+vTaskNotifyGiveFromISR唤醒、margin多级阈值、MQTT payload带置信度 |
-| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲、Cache一致性(SCB_InvalidateDCache)、24bit I2S解码 |
+| `Core/Src/freertos.c` | 主任务调度 | 幅度门控、概率分级、真实200ms时序复核、MQTT payload带置信度 |
+| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | 单字节UART中断+环形缓冲+行解析、+PUB协议 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动6状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY/ENV_ALERT) |
-| `Core/Src/dscnn_model.cc` | 模型权重 | DS-CNN float32 C数组(275KB) |
+| `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
 ### 内存布局
 
@@ -59,7 +58,7 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 |------|------|------|------|
 | DTCM | 0x20000000 | 128KB | 栈/BSS/heap |
 | AXI SRAM | 0x24000000 | 512KB | `.tensor_arena` (512KB) |
-| D2 SRAM | 0x30000000 | 288KB | ring[16384]@0x30010000, dmabuf@0x30020000 |
+| D2 SRAM | 0x30000000 | 288KB | `.audio_d2`: DMA缓冲、16384采样环形缓冲、15712采样快照 |
 
 ### 告警逻辑
 
@@ -67,8 +66,9 @@ margin≥0.8 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App 
 ```
 prob_cry = softmax(scores)[0]
 prob >= 90% → 即时ALERT (蜂鸣器+RGB+OLED+MQTT, 20s冷却)
-60% ≤ prob < 90% → 滑动投票: 0.2s后补推2次, 3次平均≥80% → ALERT
-prob < 60% → NORMAL (跳过)
+75% <= prob < 90% → 每等待3200个新采样点（约200ms）补推1次，共3窗
+复核通过 → 任一窗>=90%，或三窗平均>=85%，或最高>=85%且第二高>=60%
+prob < 75% → NORMAL (跳过)
 ```
 
 **温湿度 — 阈值告警 (撤防时跳过)**:
@@ -93,6 +93,7 @@ humi < 30%  → humi_low
 - **双模式**: AP配网(`AIHear_Setup`热点+网页配网) / STA连接+MQTT
 - **UART协议**: `+PUB:topic:payload` 文本协议，115200 baud
 - **MQTT Broker**: `broker-cn.emqx.io:1883` (与Android/Flask统一)
+- **发布语义**: PubSubClient QoS 0；失败时本地重试一次，不宣称Broker确认
 - **设备ID**: `aihear_03cb03` (MAC: 2c:3a:e8:03:cb:03)
 - **告警链路**: STM32检测到哭声 → UART发 `+PUB:aihear/alert:baby_cry:0.95` → ESP8266通过MQTT发布到 `broker-cn.emqx.io` → Android App收到后系统通知+震动
 - **GPIO0长按5秒**: 清除WiFi凭据，恢复AP配网模式

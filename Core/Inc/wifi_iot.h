@@ -4,7 +4,7 @@
 #include "main.h"
 #include <stdint.h>
 
-/* ESP32 connection states */
+/* ESP8266 connection states */
 #define WIFI_STATE_OFF         0
 #define WIFI_STATE_CONNECTING  1
 #define WIFI_STATE_CONNECTED   2

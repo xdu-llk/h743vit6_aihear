@@ -164,6 +164,10 @@ void WifiIoT_Init(void)
   HAL_GPIO_Init(ESP_RST_PORT, &g);
   HAL_GPIO_WritePin(ESP_RST_PORT, ESP_RST_PIN, GPIO_PIN_SET);
 
+  /* Track a cold boot that never reaches +READY, not only a later link loss. */
+  esp_down_since_ms = HAL_GetTick();
+  if (esp_down_since_ms == 0) esp_down_since_ms = 1;
+
   uart_start_rx();
   printf("[WiFiIoT] Init done, waiting for ESP +READY...\r\n");
 }
