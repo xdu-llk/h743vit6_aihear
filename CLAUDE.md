@@ -26,13 +26,13 @@
 ## 系统架构
 
 ```
-INMP441麦克风 → I2S(PE4/5/6) → SAI1 DMA双缓冲 → 环形缓冲(16384)
+INMP441麦克风 → I2S(PD4/PD0/PD1) → SAI3 DMA双缓冲 → 环形缓冲(16384)
   ↓
 96帧×512点FFT → Hann窗 → Mel滤波器组(40×257) → Log能量 → Z-score归一化
   ↓
 40×96 float32特征 → TFLite Micro + CMSIS-NN 推理 (DS-CNN, 2分类)
   ↓
-prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/OLED → ESP8266 MQTT → Android
+prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/TFT → ESP8266 MQTT → Android
 ```
 
 ---
@@ -65,9 +65,9 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/O
 **婴儿哭声 — 3级动态推理**:
 ```
 prob_cry = softmax(scores)[0]
-prob >= 90% → 即时ALERT (蜂鸣器+RGB+OLED+MQTT, 20s冷却)
+prob >= 90% → 即时ALERT (蜂鸣器+RGB+TFT+MQTT, 20s冷却)
 75% <= prob < 90% → 每等待3200个新采样点（约200ms）补推1次，共3窗
-复核通过 → 任一窗>=90%，或三窗平均>=85%，或最高>=85%且第二高>=60%
+复核通过 → 任一窗>=90%，或三窗平均>=85%
 prob < 75% → NORMAL (跳过)
 ```
 
@@ -191,15 +191,20 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 
 | 外设 | 引脚 | 备注 |
 |------|------|------|
-| INMP441 | PE4(WS) PE5(SCK) PE6(SD) | I2S, VCC→3.3V, L/R→GND |
+| INMP441 | PD4(WS) PD0(SCK) PD1(SD) | SAI3/I2S, VCC→3.3V, L/R→GND |
 | ESP8266 | PA1(RX) PA0(TX) | UART4, 交叉连接 |
-| OLED | PB10(SCL) PB11(SDA) | hardware I2C2, 400kHz |
-| DHT11 | PD0(DATA) | single-wire, 3.3V |
-| RGB LED | PB4(R) PB5(G) PB8(B) | 各串220Ω |
+| OV2640 | 开发板 CAMERA FPC | PB8/PB9 SCCB + 8-bit DCMI，详见 `docs/hardware_pin_plan.md` |
+| DHT11 | PE7(DATA) | single-wire, 3.3V |
+| RGB LED | PB4(R) PB5(G) PB10(B) | 共阴模块，板载限流电阻 |
 | 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
-| 按键 | PC4 → GND | 上拉输入 |
+| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY FPC，SPI4，3.3V，无RES/MISO |
+| MQ-135 | PA3(AO) | ADC12_INP15，DO不接 |
+| GP2Y1010 | PC1(AO) PD7(ILED) | ADC123_INP11 + LED采样脉冲 |
+| 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位H7；KEY2长按配网 |
 | USB-TTL | PA9(TX) PA10(RX) | 调试串口 CH340 |
 | ST-Link | SWDIO/SWCLK/GND/3.3V | |
+
+完整载板排母、CAMERA FPC、板载占线和布局限制以 `docs/hardware_pin_plan.md` 为准。
 
 ### ESP8266 设备信息
 - Chip: ESP8266EX, Crystal: 26MHz

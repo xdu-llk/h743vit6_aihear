@@ -122,7 +122,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM6_Init();
   MX_UART4_Init();
-  MX_SAI1_Init();
+  MX_SAI3_Init();
   /* USER CODE BEGIN 2 */
   Buzzer_Init();
   Serial_Init();

@@ -23,7 +23,7 @@ volatile uint32_t dma_isr_count = 0;
 
 void Audio_Init(void)
 {
-  HAL_SAI_Receive_DMA(&hsai_BlockA1, (uint8_t *)dmabuf,
+  HAL_SAI_Receive_DMA(&hsai_BlockA3, (uint8_t *)dmabuf,
                       AUDIO_BUF_SIZE * 2);
 }
 
@@ -47,7 +47,7 @@ static void copy_to_ring(const uint32_t *src, int count)
 
 void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
 {
-  if (hsai->Instance == SAI1_Block_A) {
+  if (hsai->Instance == SAI3_Block_A) {
     copy_to_ring(dmabuf, AUDIO_BUF_SIZE);
     /* Notify AudioTask from ISR */
     if (hAudioTask != NULL) {
@@ -60,7 +60,7 @@ void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
 
 void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
 {
-  if (hsai->Instance == SAI1_Block_A) {
+  if (hsai->Instance == SAI3_Block_A) {
     copy_to_ring(dmabuf + AUDIO_BUF_SIZE, AUDIO_BUF_SIZE);
     if (hAudioTask != NULL) {
       BaseType_t xHigherPriorityTaskWoken = pdFALSE;

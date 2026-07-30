@@ -209,13 +209,11 @@ static void vAudioInferTask(void *pvParameters)
 
         if (valid_count == 3) {
           float avg = (probs[0] + probs[1] + probs[2]) / 3.0f;
-          float max_prob = probs[0], second_prob = 0.0f;
+          float max_prob = probs[0];
           for (int i = 1; i < 3; i++) {
-            if (probs[i] >= max_prob) { second_prob = max_prob; max_prob = probs[i]; }
-            else if (probs[i] > second_prob) { second_prob = probs[i]; }
+            if (probs[i] > max_prob) max_prob = probs[i];
           }
-          bool detected = max_prob >= 0.90f || avg >= 0.85f ||
-                          (max_prob >= 0.85f && second_prob >= 0.60f);
+          bool detected = max_prob >= 0.90f || avg >= 0.85f;
           float decision_score = avg >= 0.85f ? avg : max_prob;
           printf("\r\n[VOTE] p1=%.0f%% p2=%.0f%% p3=%.0f%% avg=%.1f%% pk=%lu\r\n",
                  (double)(probs[0]*100), (double)(probs[1]*100), (double)(probs[2]*100),

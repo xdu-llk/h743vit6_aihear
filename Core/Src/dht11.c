@@ -1,8 +1,8 @@
 #include "dht11.h"
 #include "main.h"
 
-#define DHT11_PORT GPIOD
-#define DHT11_PIN  GPIO_PIN_0
+#define DHT11_PORT GPIOE
+#define DHT11_PIN  GPIO_PIN_7
 
 static uint32_t cycles_per_us;
 static const char *last_error = "not-read";
@@ -52,7 +52,7 @@ static bool wait_while(GPIO_PinState level, uint32_t timeout_us,
 
 void DHT11_Init(void)
 {
-  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;

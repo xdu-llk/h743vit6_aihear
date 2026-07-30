@@ -20,15 +20,15 @@
 ## 系统架构
 
 ```
-INMP441麦克风 → I2S(PE4/5/6) → SAI1 DMA双缓冲 → 环形缓冲(16384)
+INMP441麦克风 → I2S(PD4/PD0/PD1) → SAI3 DMA双缓冲 → 环形缓冲(16384)
   ↓
 96帧×512点FFT → Hann窗 → Mel滤波器组(40×257) → Log能量 → Z-score归一化
   ↓
 40×96 float32特征 → TFLite Micro + CMSIS-NN 推理 (DS-CNN, 2分类)
   ↓
-3级动态推理 → 蜂鸣器+RGB LED+OLED → UART→ESP8266→MQTT→Android App (通知+震动)
+概率分级与200ms复核 → 蜂鸣器+RGB LED+TFT → UART→ESP8266→MQTT→Android App (通知+震动)
   ↓
-DHT11 温湿度 @2s → OLED刷新标记+4阈值判断 → 同上告警链路
+DHT11 温湿度 @2s + GP2Y1010 + MQ-135 → TFT实时刷新+持续异常确认 → 环境告警链路
 ```
 
 ---
@@ -37,14 +37,15 @@ DHT11 温湿度 @2s → OLED刷新标记+4阈值判断 → 同上告警链路
 
 | 外设 | 规格 | 数量 | 备注 |
 |------|------|:--:|------|
-| 主控 | STM32H743VIT6 核心板 (鹿小班 V2.0) | 2 | HSE=25MHz, PLL→480MHz |
-| 麦克风 | INMP441 I2S MEMS | 2 | |
-| WiFi | ESP8266-01S | 2 | |
-| 温湿度 | DHT11 | 1 | 另一块待补焊 |
-| 显示 | SSD1306 128×64 OLED I2C | 2 | |
-| 指示灯 | RGB LED 共阴 5mm | 2 | 各串 220Ω |
-| 蜂鸣器 | 无源蜂鸣器 3.3V | 2 | TIM3 PWM非阻塞旋律 |
-| 按键 | 6×6mm 轻触按键 | 2 | 短按布防/撤防, 长按≥3s 复位 |
+| 主控 | STM32H743VIT6 核心板 (鹿小班 V2.0) | 1 | HSE=25MHz, PLL→480MHz |
+| 麦克风 | INMP441 I2S MEMS | 1 | SAI3, 16kHz |
+| WiFi | ESP8266-01S | 1 | 可拆插座 |
+| 环境 | DHT11 + GP2Y1010适配板 + MQ-135模块 | 各1 | 温湿度、颗粒物与相对空气质量趋势 |
+| 摄像头 | OV2640 双补光模块 | 1 | CAMERA FPC，事件抓拍 |
+| 显示 | 鹿小班1.54英寸 ST7789兼容 240×240 | 1 | 开发板 DISPLAY FPC，SPI4 |
+| 指示灯 | RGB LED 共阴模块 | 1 | 模块板载限流电阻 |
+| 蜂鸣器 | 低电平触发无源蜂鸣器模块 | 1 | TIM3 PWM非阻塞旋律 |
+| 按键 | 6×6mm 轻触按键 | 2 | KEY1硬复位H7，KEY2长按重新配网 |
 | 调试器 | ST-Link V2 | 1 | |
 
 完整 BOM 见 [docs/BOM.md](docs/BOM.md)
@@ -148,7 +149,7 @@ h743vit6_aihear/
 
 | 模块 | 文件 | 技术要点 |
 |------|------|----------|
-| 音频采集 | `audio.c` | SAI1 DMA双缓冲、Cache一致性(`SCB_InvalidateDCache`)、24bit I2S→int32 |
+| 音频采集 | `audio.c` | SAI3 DMA双缓冲、Cache一致性(`SCB_InvalidateDCache`)、24bit I2S→int32 |
 | 特征提取 | `audio_preproc.cc` | CMSIS-DSP 512pt FFT + 40×257 Mel 滤波 + per-sample Z-score |
 | 模型推理 | `tflm_runner.cc` | TFLite Micro + CMSIS-NN, 512KB tensor arena (AXI SRAM), INT8 动态量化 |
 | 任务调度 | `freertos.c` | 单任务 + `vTaskNotifyGiveFromISR` 唤醒, IWDG 8s |
@@ -160,13 +161,13 @@ h743vit6_aihear/
 
 **婴儿哭声 — 3 级动态推理：**
 ```
-prob_cry ≥ 90% → 即时 ALERT (蜂鸣器+RGB+OLED+MQTT, 20s 冷却)
+prob_cry ≥ 90% → 即时 ALERT (蜂鸣器+RGB+TFT+MQTT, 20s 冷却)
 75% ≤ prob < 90% → 每获得约200ms新音频后补推，共3个真实时间窗
-复核通过 → 任一窗≥90%，或平均≥85%，或最高≥85%且第二高≥60%
+复核通过 → 任一窗≥90%，或三窗平均≥85%
 prob < 75% → NORMAL (跳过)
 ```
 
-**温湿度 — 阈值告警（撤防时跳过）：**
+**温湿度 — 阈值告警（不随哭声监听暂停）：**
 ```
 temp > 30°C → temp_high (RGB 红灯, 蜂鸣器不响, 5min 冷却)
 temp < 16°C → temp_low
@@ -208,15 +209,20 @@ Payload 格式：
 
 | 外设 | 引脚 | 备注 |
 |------|------|------|
-| INMP441 | PE4(WS) PE5(SCK) PE6(SD) | I2S, VCC→3.3V, L/R→GND |
+| INMP441 | PD4(WS) PD0(SCK) PD1(SD) | SAI3/I2S, VCC→3.3V, L/R→GND |
 | ESP8266 | PA1(RX) PA0(TX) | UART4, 交叉连接 |
-| DHT11 | PD0(DATA) | single-wire, 3.3V |
-| OLED | PB10(SCL) PB11(SDA) | I2C2, 400kHz |
-| RGB LED | PB4(R) PB5(G) PB8(B) | 各串 220Ω |
+| DHT11 | PE7(DATA) | single-wire, 3.3V |
+| OV2640 | 开发板 CAMERA FPC | PB8/PB9 SCCB + 8-bit DCMI |
+| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY FPC，SPI4，3.3V |
+| MQ-135 | PA3(AO) | ADC12_INP15，DO不接 |
+| GP2Y1010 | PC1(AO) PD7(ILED) | ADC123_INP11 + LED采样脉冲 |
+| RGB LED | PB4(R) PB5(G) PB10(B) | 共阴模块 |
 | 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
-| 按键 | PC4(布防/撤防) | 上拉输入, 短按=布防, 长按≥3s=复位 |
+| 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位；KEY2长按配网 |
 | USB-TTL | PA9(TX) PA10(RX) | 调试串口 CH340 |
 | ST-Link | SWDIO/SWCLK/GND/3.3V | |
+
+完整载板排母、CAMERA FPC、板载占线和布局限制见 [hardware_pin_plan.md](docs/hardware_pin_plan.md)。
 
 ### ESP8266 设备信息
 
