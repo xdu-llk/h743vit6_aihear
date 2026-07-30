@@ -64,9 +64,8 @@ public class MqttService extends Service {
     private static final int    NID_FOREGROUND = 1;
     private static final int    NID_ALERT_BASE = 1000;
 
-    // ── 告警冷却：婴儿哭 20s，温湿度 5min ──
+    // ── 哭声通知冷却；环境事件使用“异常-恢复”锁存，不使用固定时间冷却 ──
     private static final long   ALERT_COOLDOWN_MS = 20_000;
-    private static final long   ENV_ALERT_COOLDOWN_MS = 300_000;
 
     // ── Broadcast action ──
     static final String ACTION_STOP = "com.aihear.STOP";
@@ -86,6 +85,7 @@ public class MqttService extends Service {
     private AlarmReceiver stopReceiver;
     private final Map<String, Long> lastAlertByDevice = new ConcurrentHashMap<>();
     private final Map<String, Long> lastDbByDeviceClass = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> activeEnvAlerts = new ConcurrentHashMap<>();
     private final Set<Integer> activeAlertNotifications = new HashSet<>();
     private static final ConcurrentHashMap<String, Long> sDeviceLastSeen =
         new ConcurrentHashMap<>();
@@ -102,7 +102,11 @@ public class MqttService extends Service {
         long hourTs;
         double tempSum, tempMax = -99, tempMin = 99;
         double humiSum, humiMax = -1, humiMin = 999;
+        double pmSum, pmMax = -Double.MAX_VALUE, pmMin = Double.MAX_VALUE;
+        double gasSum, gasMax = -Double.MAX_VALUE, gasMin = Double.MAX_VALUE;
         int samples;
+        int pmSamples;
+        int gasSamples;
     }
 
     // ── 对外可读状态 ──
@@ -374,9 +378,14 @@ public class MqttService extends Service {
                                         // hourly aggregation — upsert to SQLite every sample
                                         try {
                                             JSONObject envJson = new JSONObject(pub.payload);
-                                            double t = envJson.optDouble("temp", Double.NaN);
-                                            double h = envJson.optDouble("humi", Double.NaN);
-                                            if (!Double.isNaN(t) && !Double.isNaN(h)) {
+                                            double t = firstFinite(envJson, "temp", "temperature");
+                                            double h = firstFinite(envJson, "humi", "humidity");
+                                            double pm = firstFinite(envJson, "pmIndex", "particleIndex", "pm25", "pm");
+                                            double gas = firstFinite(envJson, "gasIndex", "mq135Index", "mq135", "gas");
+                                            boolean hasTempHumi = !Double.isNaN(t) && !Double.isNaN(h);
+                                            boolean hasPm = !Double.isNaN(pm);
+                                            boolean hasGas = !Double.isNaN(gas);
+                                            if (hasTempHumi || hasPm || hasGas) {
                                                 long envNow = System.currentTimeMillis();
                                                 long hourTs = (envNow / 3600_000L) * 3600_000L;
                                                 String aggKey = envDevice + "|" + hourTs;
@@ -386,18 +395,44 @@ public class MqttService extends Service {
                                                     agg.hourTs = hourTs;
                                                     sEnvAggregates.put(aggKey, agg);
                                                 }
-                                                agg.tempSum += t; if (t > agg.tempMax) agg.tempMax = t; if (t < agg.tempMin) agg.tempMin = t;
-                                                agg.humiSum += h; if (h > agg.humiMax) agg.humiMax = h; if (h < agg.humiMin) agg.humiMin = h;
-                                                agg.samples++;
-                                                // flush to SQLite every sample — CONFLICT_REPLACE handles upsert
-                                                final EnvAggregate cur = agg;
+                                                if (hasTempHumi) {
+                                                    agg.tempSum += t; if (t > agg.tempMax) agg.tempMax = t; if (t < agg.tempMin) agg.tempMin = t;
+                                                    agg.humiSum += h; if (h > agg.humiMax) agg.humiMax = h; if (h < agg.humiMin) agg.humiMin = h;
+                                                    agg.samples++;
+                                                }
+                                                if (hasPm) {
+                                                    agg.pmSum += pm; if (pm > agg.pmMax) agg.pmMax = pm; if (pm < agg.pmMin) agg.pmMin = pm;
+                                                    agg.pmSamples++;
+                                                }
+                                                if (hasGas) {
+                                                    agg.gasSum += gas; if (gas > agg.gasMax) agg.gasMax = gas; if (gas < agg.gasMin) agg.gasMin = gas;
+                                                    agg.gasSamples++;
+                                                }
+                                                // Copy values before posting because the MQTT thread keeps mutating agg.
                                                 final String dev = envDevice;
+                                                final long savedHour = agg.hourTs;
+                                                final int thCount = agg.samples;
+                                                final int pmCount = agg.pmSamples;
+                                                final int gasCount = agg.gasSamples;
+                                                final double tempAvg = thCount > 0 ? agg.tempSum / thCount : Double.NaN;
+                                                final double tempMax = thCount > 0 ? agg.tempMax : Double.NaN;
+                                                final double tempMin = thCount > 0 ? agg.tempMin : Double.NaN;
+                                                final double humiAvg = thCount > 0 ? agg.humiSum / thCount : Double.NaN;
+                                                final double humiMax = thCount > 0 ? agg.humiMax : Double.NaN;
+                                                final double humiMin = thCount > 0 ? agg.humiMin : Double.NaN;
+                                                final double pmAvg = pmCount > 0 ? agg.pmSum / pmCount : Double.NaN;
+                                                final double pmMax = pmCount > 0 ? agg.pmMax : Double.NaN;
+                                                final double pmMin = pmCount > 0 ? agg.pmMin : Double.NaN;
+                                                final double gasAvg = gasCount > 0 ? agg.gasSum / gasCount : Double.NaN;
+                                                final double gasMax = gasCount > 0 ? agg.gasMax : Double.NaN;
+                                                final double gasMin = gasCount > 0 ? agg.gasMin : Double.NaN;
                                                 mainHandler.post(() -> {
-                                                    if (db != null && cur.samples > 0)
-                                                        db.upsertEnvHourly(dev, cur.hourTs,
-                                                            cur.tempSum / cur.samples, cur.tempMax, cur.tempMin,
-                                                            cur.humiSum / cur.samples, cur.humiMax, cur.humiMin,
-                                                            cur.samples);
+                                                    if (db != null)
+                                                        db.upsertEnvHourly(dev, savedHour,
+                                                            tempAvg, tempMax, tempMin,
+                                                            humiAvg, humiMax, humiMin, thCount,
+                                                            pmAvg, pmMax, pmMin, pmCount,
+                                                            gasAvg, gasMax, gasMin, gasCount);
                                                 });
                                             }
                                         } catch (Exception ignored) {}
@@ -787,16 +822,28 @@ public class MqttService extends Service {
         // only live alerts update LastSeen — skip subscribe-phase replays
         if (connected) sDeviceLastSeen.put(deviceId, now);
         sMsgCount++; // MQTT 消息接收计数
-        final boolean isAlert = cls.contains("baby_cry") || cls.contains("help") || cls.contains("cry")
-            || cls.startsWith("temp_") || cls.startsWith("humi_");
-        final boolean isEnvAlert = cls.startsWith("temp_") || cls.startsWith("humi_");
+        final boolean isEnvEvent = isEnvironmentClass(cls);
+        final boolean isRecovery = isRecoveryClass(cls);
+        final boolean isCryAlert = cls.contains("baby_cry") || cls.contains("help") || cls.contains("cry");
+        final boolean isAlert = isCryAlert || (isEnvEvent && !isRecovery);
+        final String envKey = deviceId + "|" + environmentBaseClass(cls);
+        final boolean isEnvTransition;
+        if (!isEnvEvent) {
+            isEnvTransition = false;
+        } else if (isRecovery) {
+            isEnvTransition = activeEnvAlerts.remove(envKey) != null;
+        } else {
+            isEnvTransition = activeEnvAlerts.putIfAbsent(envKey, Boolean.TRUE) == null;
+        }
 
         // ── 入库：按设备和类别分别进行 10 分钟去重 ──
         String dbKey = deviceId + "|" + cls;
         long previousDbMs = lastDbByDeviceClass.containsKey(dbKey)
             ? lastDbByDeviceClass.get(dbKey) : 0;
-        boolean shouldInsert = now - previousDbMs >= 600_000;
-        if (shouldInsert) {
+        boolean shouldInsert = isEnvEvent ? (isEnvTransition && !isRecovery) : now - previousDbMs >= 600_000;
+        if (isEnvEvent && isRecovery) {
+            db.markAlertRecovered(now, deviceId, eventId, environmentBaseClass(cls));
+        } else if (shouldInsert) {
             lastDbByDeviceClass.put(dbKey, now);
             db.insertAlert(now, deviceId, eventId, cls, score, topic);
         }
@@ -813,9 +860,10 @@ public class MqttService extends Service {
 
         mainHandler.post(() -> {
             // 通知所有监听者（WebView JS 桥接）
-            notifyJsListeners(fCls, fScore);
+            notifyJsListeners(fDeviceId, fCls, fScore);
 
             if (!isAlert) return;
+            if (isEnvEvent && !isEnvTransition) return;
 
             // 单设备模式：只通知当前监视的设备
             if (!sMonitorAll && !sMonitoredDevice.isEmpty() &&
@@ -824,10 +872,9 @@ public class MqttService extends Service {
                 return;
             }
 
-            // 防抖 — 哭声 20s，温湿度 5min
-            long cooldown = isEnvAlert ? ENV_ALERT_COOLDOWN_MS : ALERT_COOLDOWN_MS;
-            // per-device+class cooldown for env alerts, per-device for cry
-            String coolKey = isEnvAlert ? (fDeviceId + "|" + fCls) : fDeviceId;
+            // 环境事件由状态锁存去重；这里的时间冷却仅用于哭声通知。
+            long cooldown = isEnvEvent ? 0 : ALERT_COOLDOWN_MS;
+            String coolKey = isEnvEvent ? envKey : fDeviceId;
             long previousAlertMs = lastAlertByDevice.containsKey(coolKey)
                 ? lastAlertByDevice.get(coolKey) : 0;
             if (fNow - previousAlertMs < cooldown) {
@@ -873,7 +920,7 @@ public class MqttService extends Service {
     // ═══════════════════════════════════════════════════════════════
 
     interface AlertListener {
-        void onAlert(String cls, double score);
+        void onAlert(String deviceId, String cls, double score);
     }
 
     private static final List<AlertListener> jsListeners = new ArrayList<>();
@@ -888,12 +935,12 @@ public class MqttService extends Service {
         synchronized (jsListeners) { jsListeners.remove(listener); }
     }
 
-    private void notifyJsListeners(String cls, double score) {
+    private void notifyJsListeners(String deviceId, String cls, double score) {
         List<AlertListener> listeners;
         synchronized (jsListeners) {
             listeners = new ArrayList<>(jsListeners);
         }
-        for (AlertListener listener : listeners) listener.onAlert(cls, score);
+        for (AlertListener listener : listeners) listener.onAlert(deviceId, cls, score);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -945,9 +992,34 @@ public class MqttService extends Service {
         else if (cls.startsWith("temp_low")) { emoji = "🌡️"; text = "温度过低"; }
         else if (cls.startsWith("humi_high")) { emoji = "💧"; text = "湿度过高"; }
         else if (cls.startsWith("humi_low"))  { emoji = "💧"; text = "湿度过低"; }
+        else if (cls.startsWith("pm_") || cls.startsWith("particle_")) { emoji = "◌"; text = "颗粒物偏高"; }
+        else if (cls.startsWith("mq135_") || cls.startsWith("gas_") || cls.startsWith("air_")) { emoji = "△"; text = "气态污染偏高"; }
         else { emoji = "🚼"; text = String.format("检测到哭声 (%.0f%%)", score * 100); }
 
         return buildNotification(String.format("%s %s %s", emoji, deviceId, text), true);
+    }
+
+    private static double firstFinite(JSONObject json, String... keys) {
+        for (String key : keys) {
+            double value = json.optDouble(key, Double.NaN);
+            if (!Double.isNaN(value) && !Double.isInfinite(value)) return value;
+        }
+        return Double.NaN;
+    }
+
+    private static boolean isEnvironmentClass(String cls) {
+        return cls.startsWith("temp_") || cls.startsWith("humi_") ||
+            cls.startsWith("pm_") || cls.startsWith("particle_") ||
+            cls.startsWith("mq135_") || cls.startsWith("gas_") || cls.startsWith("air_");
+    }
+
+    private static boolean isRecoveryClass(String cls) {
+        return cls.endsWith("_recovered") || cls.endsWith("_recovery") ||
+            cls.endsWith("_clear") || cls.endsWith("_normal");
+    }
+
+    private static String environmentBaseClass(String cls) {
+        return cls.replaceFirst("_(recovered|recovery|clear|normal)$", "");
     }
 
     /** 静态启动辅助 */

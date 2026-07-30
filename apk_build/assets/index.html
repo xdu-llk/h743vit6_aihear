@@ -3,785 +3,544 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#f3f5f3">
 <title>AI Hear</title>
 <script src="chart.min.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden}
-body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#FFF5F5;color:#4A3B3C;
-  display:flex;flex-direction:column;height:100%;
-  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
-
-/* ── 设备绑定 ── */
-.bind-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#FFF5F5;z-index:10000;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;
-  padding-top:env(safe-area-inset-top)}
-.bind-overlay.hidden{display:none}
-.bind-card{background:#fff;border-radius:20px;padding:30px;width:100%;max-width:360px;
-  box-shadow:0 8px 32px rgba(0,0,0,.08);text-align:center}
-.bind-card h2{font-size:22px;color:#F2A0A0;margin-bottom:6px}
-.bind-card .sub{font-size:14px;color:#B8A9A5;margin-bottom:24px}
-.bind-card label{display:block;text-align:left;font-size:14px;color:#888;margin-bottom:6px;margin-top:16px}
-.bind-card input{width:100%;padding:14px;border:2px solid #F5E0E0;border-radius:12px;font-size:16px;outline:none}
-.bind-card input:focus{border-color:#F2A0A0}
-.bind-card .btn-bind{margin-top:24px;width:100%;padding:16px;
-  background:linear-gradient(135deg,#F2A0A0,#E8888A);color:#fff;border:none;border-radius:14px;
-  font-size:18px;font-weight:700;cursor:pointer}
-.bind-card .hint{font-size:12px;color:#C5B9B7;margin-top:16px;line-height:1.6}
-.device-list{margin-top:18px;display:flex;flex-direction:column;gap:8px}
-.device-row{display:flex;gap:8px;align-items:center}
-.device-choice{flex:1;padding:11px 12px;border:1px solid #F5E0E0;background:#fff;color:#555;
-  text-align:left;font-size:14px;cursor:pointer}
-.device-choice.selected{border-color:#F2A0A0;background:#FFF5F5;color:#C65F65;font-weight:700}
-.device-remove{width:40px;height:40px;border:1px solid #F2CCCC;background:#fff;color:#C44;
-  font-size:20px;cursor:pointer}
-.monitor-toolbar{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px}
-.monitor-toolbar h3{font-size:15px;color:#5A4A4B}.monitor-toolbar span{font-size:12px;color:#A99;margin-left:6px}
-.monitor-add{width:36px;height:36px;border:1px solid #E8D8D8;background:#fff;color:#B65B61;font-size:22px;cursor:pointer}
-.monitor-list{background:#fff;border-top:1px solid #EEDDDD;border-bottom:1px solid #EEDDDD;margin-bottom:16px}
-.monitor-row{width:100%;min-height:64px;border:0;border-bottom:1px solid #F1E6E6;background:#fff;padding:9px 12px;
-  display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;cursor:pointer}
-.monitor-row:last-child{border-bottom:0}.monitor-row.selected{background:#FFF6F6}.monitor-row.alerting{background:#FFF0F0}
-.monitor-state{width:9px;height:9px;border-radius:50%;background:#AAA}.monitor-state.online{background:#2EAD62}.monitor-state.alert{background:#D63838}
-.monitor-main{min-width:0}.monitor-name{font-size:14px;font-weight:700;color:#4A3B3C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.monitor-meta{font-size:11px;color:#A69697;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.monitor-count{text-align:right;font-size:11px;color:#9A8586}.monitor-count b{display:block;font-size:19px;color:#C65F65}
-.detail-title{display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px;color:#6A5859;font-size:13px;font-weight:700}
-
-/* ── 内容区（可滚动） ── */
-.content-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
-.tab-pane{display:none;padding:14px;min-height:100%;animation:fadeIn .3s}
-.tab-pane.active{display:block}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-
-/* ── 底部 Tab 导航 ── */
-.tab-bar{display:flex;background:#fff;border-top:2px solid #F5E0E0;flex-shrink:0;
-  padding-bottom:env(safe-area-inset-bottom)}
-.tab-bar button{flex:1;padding:11px 0 9px;border:none;background:none;font-size:12px;color:#B8A9A5;
-  cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:.2s}
-.tab-bar button .tb-icon{font-size:20px;line-height:1}
-.tab-bar button.active{color:#F2A0A0;font-weight:700}
-
-/* ── 告警 状态栏 ── */
-.status-bar{background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:16px;
-  display:flex;align-items:center;justify-content:space-between;
-  box-shadow:0 2px 12px rgba(0,0,0,.06);border:1px solid #F5E8E8}
-.status-bar .left{display:flex;align-items:center;gap:10px}
-.mqtt-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.mqtt-dot.on{background:#4F8;box-shadow:0 0 8px #4F8}
-.mqtt-dot.mid{background:#FD0;box-shadow:0 0 8px #FD0}
-.mqtt-dot.off{background:#F44;box-shadow:0 0 8px #F44}
-.stxt{font-size:13px;font-weight:600}
-.stxt.ok{color:#28a745}
-.stxt.err{color:#dc3545}
-.stxt.meta{font-size:11px;font-weight:400;color:#999}
-.dev{font-size:11px;color:#B8A9A5}
-.btn-toggle{background:#F2A0A0;color:#fff;border:none;padding:10px 20px;border-radius:20px;
-  font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
-
-/* ── 告警列表 ── */
-.alert-item{background:#fff;border-radius:14px;padding:16px;margin-bottom:12px;
-  display:flex;align-items:center;gap:12px;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8;
-  border-left:4px solid #E0D0D0}
-.alert-item.cry-card{border-left:4px solid #E8534F;background:#FFFBFB}
-.alert-item.env-card{border-left:4px solid #E8A050;background:#FFFBF5}
-.alert-item .icon{font-size:30px;flex-shrink:0}
-.alert-item .info{flex:1}.alert-item .cls{font-weight:700;font-size:14px}
-.alert-item .cls.cry{color:#E8534F}.alert-item .cls.env{color:#D08030}.alert-item .meta{font-size:12px;color:#B8A9A5;margin-top:2px}
-.alert-item .del{background:#FDD;border:1px solid #FCC;color:#D33;padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600}
-.alert-item .del:active{background:#FBB}
-
-/* ── 喂养 ── */
-.feed-row{display:flex;gap:10px;margin-bottom:14px}
-.feed-row input{flex:1;padding:12px 16px;border:2px solid #F5E0E0;border-radius:12px;font-size:15px;outline:none}
-.feed-row input:focus{border-color:#F2A0A0}
-.feed-row button{padding:12px 20px;background:#F2A0A0;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer}
-.feed-item{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8;border-left:4px solid #A8D8CA}
-.feed-item .fleft{flex:1}.feed-item .fts{font-size:14px;font-weight:600}
-.feed-item .fnt{font-size:12px;color:#B8A9A5}
-
-/* ── 统计 ── */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
-.stat-card{background:#fff;border-radius:16px;padding:18px;text-align:center;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);border:1px solid #F5E8E8}
-.stat-card .num{font-size:36px;font-weight:800;color:#F2A0A0}
-.stat-card .label{font-size:13px;color:#B8A9A5;margin-top:4px}
-.chart-card{background:#fff;border-radius:10px;padding:18px 16px 16px;border:1px solid var(--line);box-shadow:0 1px 4px rgba(28,45,41,.04)}
-.chart-card h3{font-size:13px;margin-bottom:4px;color:var(--ink);font-weight:650;letter-spacing:.02em}
-.chart-wrap{width:100%;height:260px;position:relative}
-.chart-wrap-scroll{width:100%;height:260px;overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
-.chart-wrap-scroll canvas{min-width:672px;height:260px}
-/* (chart-wrap-scroll reserved for future wide charts) */
-
-/* ── AI ── */
-.ai-card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.ai-card h3{font-size:16px;margin-bottom:6px;color:#666}
-.ai-result{font-size:14px;line-height:1.8;color:#555;white-space:pre-wrap;margin-top:12px;padding:14px;background:#FFFBF5;border-radius:10px;border:1px solid #F5E0E0;min-height:80px}
-.btn-ai{margin-top:12px;width:100%;padding:14px;background:linear-gradient(135deg,#8E7AB5,#B5A0D8);color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer}
-.api-cfg{margin-top:14px;padding:14px;background:#FFFBEB;border-radius:10px;border:1px solid #F5E0E0}
-.api-cfg label{font-size:12px;color:#888;display:block;margin-bottom:4px}
-.api-cfg input{width:100%;padding:10px;border:1px solid #E8DDD8;border-radius:8px;font-size:13px;outline:none;margin-bottom:8px}
-.api-cfg button{padding:8px 18px;background:#F2A0A0;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer}
-
-/* ── 告警弹窗 ── */
-.overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(220,50,50,.94);z-index:9999;
-  display:none;flex-direction:column;align-items:center;justify-content:center}
-.overlay.show{display:flex}
-.overlay .icon{font-size:80px;animation:bounce .6s infinite alternate}
-@keyframes bounce{from{transform:scale(1)}to{transform:scale(1.15)}}
-.overlay .msg{color:#fff;font-size:28px;font-weight:800;margin:20px 0;text-align:center}
-.overlay .sub{color:rgba(255,255,255,.8);font-size:15px;margin-bottom:30px}
-.overlay .dismiss{background:#fff;color:#D32;padding:16px 48px;border:none;border-radius:24px;font-size:18px;font-weight:700;cursor:pointer}
-
-.empty{text-align:center;color:#C5B9B7;padding:40px 0;font-size:15px}
-.err-msg{background:#FFF3CD;color:#856404;padding:10px 14px;border-radius:10px;margin-bottom:10px;font-size:13px;display:none}
-
-/* ── 2026 visual refresh: compact monitoring workspace ── */
 :root{
-  --bg:#f4f6f5;--surface:#ffffff;--ink:#202927;--muted:#6f7c79;--line:#dfe5e2;
-  --teal:#147d72;--teal-soft:#e5f3f0;--red:#d94d4d;--red-soft:#fceaea;
-  --blue:#3267c8;--blue-soft:#eaf0fb;--amber:#b96b12;--amber-soft:#fff2dc;
-  --pink:#d77983;--shadow:0 2px 8px rgba(28,45,41,.07)
+  --bg:#f3f5f3;--surface:#fff;--ink:#1f2926;--muted:#6e7c77;--faint:#96a19d;
+  --line:#dce3df;--primary:#137568;--primary-soft:#e3f2ee;--blue:#356da8;
+  --blue-soft:#e8f0f8;--amber:#a9630a;--amber-soft:#fff1d9;--red:#c94747;
+  --red-soft:#fae9e8;--shadow:0 2px 10px rgba(24,43,37,.06)
 }
-body{background:var(--bg);color:var(--ink);letter-spacing:0}
-.content-area{background:var(--bg)}
-.tab-pane{padding:14px 14px 20px}
+*{box-sizing:border-box;margin:0;padding:0;letter-spacing:0}
+html,body{width:100%;height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+button,input,textarea{font:inherit;letter-spacing:0}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:default;opacity:.55}
+.app-shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.content-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.content-area::-webkit-scrollbar{display:none}
+.tab-pane{display:none;min-height:100%;padding:0 14px 24px}
+.tab-pane.active{display:block;animation:pageIn .18s ease-out}
+@keyframes pageIn{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}
 
-.bind-overlay{background:var(--bg)}
-.bind-card{border-radius:8px;padding:24px;border:1px solid var(--line);box-shadow:var(--shadow)}
-.bind-card h2{color:var(--ink);font-size:20px}
-.bind-card .sub,.bind-card .hint{color:var(--muted)}
-.bind-card p{overflow-wrap:anywhere}
-.bind-card input{border:1px solid var(--line);border-radius:6px;background:#fbfcfc}
-.bind-card input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft)}
-.bind-card .btn-bind{border-radius:6px;background:var(--teal);font-size:15px;padding:13px}
-.device-choice{border-color:var(--line);border-radius:6px}
-.device-choice.selected{border-color:var(--teal);background:var(--teal-soft);color:var(--teal)}
-.device-remove{border-radius:6px;border-color:#efcaca;background:var(--red-soft);color:var(--red)}
+.topbar{height:62px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
+  z-index:20;background:var(--bg);padding:10px 0 8px}
+.brand{min-width:0}.brand h1{font-size:20px;line-height:1.15;font-weight:780}.brand p{font-size:11px;color:var(--muted);margin-top:3px}
+.connection-pill{height:34px;max-width:145px;padding:0 10px;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;font-weight:650}
+.connection-pill .dot{width:8px;height:8px;border-radius:50%;background:#9aa4a0;flex:none}
+.connection-pill.online .dot{background:#1d9b65;box-shadow:0 0 0 4px #e0f2e9}
+.connection-pill.connecting .dot{background:#d09222;box-shadow:0 0 0 4px #fff1cf}
+.connection-pill.error .dot{background:var(--red);box-shadow:0 0 0 4px var(--red-soft)}
 
-.status-bar{border-radius:8px;padding:13px 14px;margin-bottom:10px;border:1px solid var(--line);box-shadow:none}
-.status-bar .left{min-width:0}.status-bar .left>div{min-width:0}
-.mqtt-dot{width:9px;height:9px}.mqtt-dot.on{background:#22a06b;box-shadow:0 0 0 4px #e4f5ed}
-.mqtt-dot.mid{background:#d79821;box-shadow:0 0 0 4px #fff4d8}
-.mqtt-dot.off{background:#c84c4c;box-shadow:0 0 0 4px #fce8e8}
-.stxt{font-size:13px;color:var(--ink)}.stxt.ok{color:#187a54}.stxt.err{color:#b54141}
-.dev{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px}
-.btn-toggle{border-radius:6px;background:var(--blue);padding:9px 13px;font-size:12px;min-width:88px}
+.section-head{display:flex;align-items:flex-end;justify-content:space-between;margin:16px 1px 9px;gap:10px}
+.section-head:first-of-type{margin-top:4px}.section-title{font-size:14px;font-weight:750}.section-meta{font-size:11px;color:var(--muted)}
+.icon-btn{width:36px;height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);
+  display:grid;place-items:center;font-size:20px;line-height:1}.icon-btn:active{background:#edf1ef}
+.text-btn{min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:#fff;
+  color:#44514d;font-size:12px;font-weight:680}.text-btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.text-btn.danger{background:var(--red-soft);border-color:#edc3c1;color:#a63b3b}
+.text-btn.soft{background:var(--primary-soft);border-color:#b9ddd4;color:#0d685e}
 
-.control-panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:14px;overflow:hidden}
-.environment-row{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-bottom:1px solid var(--line)}
-.environment-row .label{font-size:11px;color:var(--muted)}
-.environment-row strong{font-size:16px;color:var(--amber);font-weight:750}
-.control-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:10px 12px}
-.control-btn{height:42px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer}
-.control-btn.arm{background:var(--teal-soft);border-color:#b8ddd5;color:#116b62}
-.control-btn.disarm{background:#fceaea;border-color:#efc5c5;color:#b54141}
-.control-btn.music{background:var(--blue-soft);border-color:#c7d5f1;color:#2859ad}
-.control-btn:disabled{opacity:.62;cursor:default}
+.device-strip{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:9px}
+.device-overview{min-height:59px;padding:9px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}
+.device-overview+.device-overview{border-top:1px solid var(--line)}
+.device-select{min-width:0;border:0;background:#fff;text-align:left;display:grid;grid-template-columns:9px minmax(0,1fr);gap:9px;align-items:center}
+.device-select i{width:8px;height:8px;border-radius:50%;background:#99a49f}.device-select i.online{background:#1d9b65}
+.device-select b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.device-select span{display:block;font-size:10px;color:var(--muted);margin-top:4px}
+.device-overview.selected{background:#f4faf8}.device-overview.selected .device-select{background:#f4faf8}
+.device-arm{height:33px;min-width:58px;padding:0 9px;border:1px solid #b8ddd4;border-radius:7px;background:var(--primary-soft);color:#0c685e;font-size:11px;font-weight:700}
+.device-arm.paused{border-color:var(--line);background:#f2f4f3;color:#6a7672}
 
-.monitor-toolbar{margin:2px 0 8px}.monitor-toolbar h3{font-size:14px;color:var(--ink)}
-.monitor-toolbar span{color:var(--muted)}
-.monitor-add{border-radius:6px;border-color:var(--line);color:var(--teal);font-size:20px}
-.monitor-list{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
-.monitor-row{min-height:62px;border-bottom-color:var(--line);padding:10px 12px}
-.monitor-row.selected{background:#f0f7f5}.monitor-row.alerting{background:var(--red-soft)}
-.monitor-name,.monitor-meta{display:block}
-.monitor-name{color:var(--ink)}.monitor-meta,.monitor-count{color:var(--muted)}
-.monitor-count b{color:var(--red)}
-.detail-title{color:var(--ink);font-size:13px;margin-top:2px}
+.device-hero{background:#25312e;color:#fff;border-radius:8px;padding:15px;margin-top:5px;box-shadow:var(--shadow)}
+.device-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.device-name{font-size:17px;font-weight:760;overflow-wrap:anywhere}.device-id{font-size:10px;color:#b6c2be;margin-top:4px;overflow-wrap:anywhere}
+.live-state{font-size:11px;display:flex;align-items:center;gap:6px;white-space:nowrap;color:#d6dfdc}
+.live-state i{width:7px;height:7px;border-radius:50%;background:#87928f}.live-state.online i{background:#53d696}
+.hero-summary{display:grid;grid-template-columns:1fr 1fr;margin-top:16px;border-top:1px solid #42504c}
+.hero-summary>div{padding-top:11px}.hero-summary>div+div{border-left:1px solid #42504c;padding-left:14px}
+.hero-summary small{display:block;color:#aebbb7;font-size:10px}.hero-summary strong{display:block;font-size:13px;margin-top:4px;font-weight:690}
 
-.alert-item,.feed-item{border-radius:8px;border-color:var(--line);box-shadow:none;padding:13px}
-.alert-item.cry-card{background:#fff;border-left-color:var(--red)}
-.alert-item .del{border-radius:6px;background:var(--red-soft);border-color:#efcaca;color:#b54141}
-.feed-row input{border:1px solid var(--line);border-radius:6px;background:#fff}
-.feed-row input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft)}
-.feed-row button{border-radius:6px;background:var(--teal);font-size:13px}
+.env-grid{display:grid;grid-template-columns:1fr 1fr;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.env-cell{height:89px;padding:13px;position:relative}.env-cell:nth-child(odd){border-right:1px solid var(--line)}
+.env-cell:nth-child(-n+2){border-bottom:1px solid var(--line)}
+.env-label{font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+.env-value{font-size:23px;font-weight:760;margin-top:10px;line-height:1}.env-unit{font-size:11px;font-weight:600;color:var(--muted);margin-left:3px}
+.env-status{font-size:10px;color:#2c7c64;background:#e6f3ed;padding:3px 6px;border-radius:5px}
+.env-cell.pending .env-status{background:var(--amber-soft);color:var(--amber)}
+.env-cell.alarm .env-status{background:var(--red-soft);color:var(--red)}
+.env-cell.disabled .env-value{color:#98a29f}.env-cell.temp .env-value{color:#b7573d}.env-cell.humi .env-value{color:var(--blue)}
+.env-cell.pm .env-value{color:#8a651e}.env-cell.gas .env-value{color:#66724e}
 
-.action-row{display:flex;justify-content:flex-end;gap:8px;padding:4px 0 18px}
-.action-btn{height:34px;padding:0 13px;border-radius:6px;background:#fff;font-size:11px;cursor:pointer}
-.action-btn.manage{border:1px solid var(--line);color:#4f5d59}
-.action-btn.clear{border:1px solid #efcaca;color:#b54141;background:var(--red-soft)}
+.monitor-panel{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+.monitor-line{min-height:62px;padding:11px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.monitor-line+.monitor-line{border-top:1px solid var(--line)}
+.monitor-copy{min-width:0}.monitor-copy strong{display:block;font-size:13px}.monitor-copy span{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+.switch-btn{height:34px;min-width:68px;padding:0 12px;border:1px solid #b7dbd3;border-radius:7px;background:var(--primary-soft);
+  color:#0d685e;font-size:12px;font-weight:700}.switch-btn.paused{border-color:#d8deda;background:#f0f2f1;color:#68736f}
+.button-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+.button-pair button{height:38px;border:1px solid var(--line);border-radius:7px;background:#f8faf9;color:#44514d;font-size:12px;font-weight:680}
 
-.stat-grid{gap:8px;margin-bottom:12px}
-.stat-card{border-radius:8px;padding:14px 10px;border-color:var(--line);box-shadow:none;text-align:left;min-height:92px}
-.stat-card .num{font-size:28px;color:var(--ink);line-height:1.1}
-.stat-card .label{font-size:11px;color:var(--muted);margin-top:8px}
-.ai-card{border-radius:8px;border:1px solid var(--line);box-shadow:none;padding:16px}
-.ai-card h3{color:var(--ink)}
-.ai-result{border-radius:6px;border-color:var(--line);background:#f8faf9;color:#394440}
-.btn-ai{border-radius:6px;background:var(--blue);font-size:14px;padding:12px}
-.api-cfg{border-radius:6px;border-color:var(--line);background:#f8faf9}
-.api-cfg input,.api-cfg button{border-radius:6px}.api-cfg button{background:var(--teal)}
+.snapshot{position:relative;aspect-ratio:16/9;border:1px solid var(--line);border-radius:8px;background:#dde3df;overflow:hidden}
+.snapshot img{width:100%;height:100%;object-fit:cover;display:none}.snapshot.has-image img{display:block}
+.snapshot-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#70807a;font-size:12px}
+.snapshot.has-image .snapshot-empty{display:none}.snapshot-empty span{display:block;font-size:26px;color:#81908b;margin-bottom:7px}
+.snapshot-foot{position:absolute;left:0;right:0;bottom:0;min-height:38px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;
+  background:rgba(24,34,31,.8);color:#fff;font-size:10px}.snapshot:not(.has-image) .snapshot-foot{display:none}
 
-.tab-bar{border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(28,45,41,.05)}
-.tab-bar button{padding:9px 0 8px;color:#7a8784;gap:2px;position:relative}
-.tab-bar button .tb-icon{width:24px;height:20px;border-radius:5px;background:#eef1f0;color:#66736f;font-size:10px;font-weight:800;display:grid;place-items:center}
-.tab-bar button.active{color:var(--teal)}
-.tab-bar button.active .tb-icon{background:var(--teal-soft);color:var(--teal)}
+.event-list,.feed-list{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+.event-item,.feed-item{min-height:70px;padding:12px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center}
+.event-item+.event-item,.feed-item+.feed-item{border-top:1px solid var(--line)}
+.event-mark,.feed-mark{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:800;background:#eef1ef;color:#5f6c68}
+.event-item.cry .event-mark{background:var(--red-soft);color:var(--red)}.event-item.env .event-mark{background:var(--amber-soft);color:var(--amber)}
+.event-main,.feed-main{min-width:0}.event-title,.feed-title{font-size:13px;font-weight:700}.event-meta,.feed-meta{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45}
+.event-state{font-size:10px;padding:4px 6px;border-radius:5px;background:var(--red-soft);color:var(--red);white-space:nowrap}
+.event-state.recovered{background:#e7f2ed;color:#237558}.delete-btn{width:32px;height:32px;border:0;background:transparent;color:#9a5d5d;font-size:18px}
+.empty-state{padding:30px 16px;text-align:center;color:var(--muted);font-size:12px}.empty-state b{display:block;color:#64716d;font-size:13px;margin-bottom:5px}
 
-.overlay{background:rgba(168,42,42,.96)}
-.overlay .dismiss{border-radius:6px;color:#a62c2c}
-.err-msg{border-radius:6px;background:var(--amber-soft);color:#74450c}
-.empty{color:#8a9693}
+.page-heading{padding:14px 1px 13px}.page-heading h2{font-size:20px}.page-heading p{font-size:11px;color:var(--muted);margin-top:4px}
+.feed-form{border:1px solid var(--line);border-radius:8px;background:#fff;padding:13px}
+.field-label{font-size:11px;color:var(--muted);margin-bottom:7px;display:block}
+.segmented{display:grid;grid-template-columns:repeat(3,1fr);background:#edf1ef;border-radius:7px;padding:3px;gap:3px}
+.segmented button{height:35px;border:0;border-radius:5px;background:transparent;color:#697570;font-size:12px;font-weight:680}
+.segmented button.active{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(20,35,30,.1)}
+.amount-row{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;gap:7px;margin-top:12px}
+.step-btn{height:44px;border:1px solid var(--line);border-radius:7px;background:#f5f8f6;color:#40504b;font-size:22px}
+.amount-box{height:44px;border:1px solid var(--line);border-radius:7px;display:flex;align-items:center;background:#fff;overflow:hidden}
+.amount-box input{width:100%;height:100%;border:0;outline:0;padding:0 8px;text-align:center;font-size:17px;font-weight:720;color:var(--ink)}
+.amount-box span{padding-right:11px;font-size:11px;color:var(--muted);white-space:nowrap}
+.note-input{width:100%;height:42px;border:1px solid var(--line);border-radius:7px;outline:0;padding:0 11px;margin-top:10px;background:#fff;color:var(--ink);font-size:13px}
+.note-input:focus,.amount-box:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.save-feed{width:100%;height:43px;border:0;border-radius:7px;background:var(--primary);color:#fff;font-size:13px;font-weight:730;margin-top:11px}
+.feed-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;border:1px solid var(--line);border-radius:8px;background:var(--line);overflow:hidden}
+.feed-summary>div{background:#fff;padding:11px;text-align:center;min-width:0}.feed-summary b{font-size:16px;display:block}.feed-summary span{font-size:10px;color:var(--muted);display:block;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-@media (max-width:360px){
-  .tab-pane{padding-left:10px;padding-right:10px}
-  .control-grid{gap:4px;padding:8px 10px}.control-btn{font-size:11px;height:38px}
-  .btn-toggle{min-width:76px;padding-left:9px;padding-right:9px}
+.trend-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.trend-stat{height:66px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 8px;min-width:0}
+.trend-stat b{display:block;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.trend-stat span{display:block;font-size:9px;color:var(--muted);margin-top:7px}
+.chart-section{border:1px solid var(--line);border-radius:8px;background:#fff;padding:13px;margin-top:10px}
+.chart-title{font-size:13px;font-weight:730}.chart-sub{font-size:10px;color:var(--muted);margin-top:3px}.chart-wrap{height:220px;margin-top:10px;position:relative}
+
+.analysis-summary{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.analysis-summary>div{padding:12px 8px;text-align:center}.analysis-summary>div+div{border-left:1px solid var(--line)}
+.analysis-summary b{display:block;font-size:18px}.analysis-summary span{font-size:9px;color:var(--muted);margin-top:5px;display:block}
+.analysis-result{min-height:190px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:15px;font-size:13px;line-height:1.8;white-space:pre-wrap;color:#394540}
+.analysis-result.empty{display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted)}
+.analysis-action{width:100%;height:44px;border:0;border-radius:7px;background:#315f91;color:#fff;font-size:13px;font-weight:720;margin-top:10px}
+.data-scope{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.data-scope span{font-size:10px;color:#596661;background:#e9eeeb;padding:5px 7px;border-radius:5px}
+
+.tab-bar{height:62px;flex:none;display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border-top:1px solid var(--line);
+  box-shadow:0 -3px 12px rgba(23,38,33,.05);padding-bottom:env(safe-area-inset-bottom)}
+.tab-bar button{border:0;background:#fff;color:#7a8682;font-size:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative}
+.tab-bar .nav-icon{width:25px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:14px;line-height:1}
+.tab-bar button.active{color:var(--primary);font-weight:730}.tab-bar button.active .nav-icon{background:var(--primary-soft)}
+
+.modal{position:fixed;inset:0;z-index:200;background:rgba(18,27,24,.46);display:none;align-items:flex-end}
+.modal.show{display:flex}.sheet{width:100%;max-height:88%;overflow-y:auto;background:var(--bg);border-radius:8px 8px 0 0;padding:10px 14px calc(18px + env(safe-area-inset-bottom))}
+.sheet-grip{width:38px;height:4px;border-radius:2px;background:#c5cdca;margin:0 auto 13px}.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+.sheet-head h3{font-size:17px}.close-btn{width:34px;height:34px;border:0;border-radius:7px;background:#e6ebe8;color:#52605c;font-size:20px}
+.settings-block{border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:10px;overflow:hidden}
+.settings-row{min-height:58px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.settings-row+.settings-row{border-top:1px solid var(--line)}.settings-copy{min-width:0}.settings-copy b{font-size:13px;display:block}.settings-copy span{font-size:10px;color:var(--muted);display:block;margin-top:4px;overflow-wrap:anywhere}
+.device-form{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;margin-bottom:10px}.device-form input{width:100%;height:42px;border:1px solid var(--line);border-radius:7px;padding:0 10px;outline:0;margin-bottom:8px;font-size:13px}
+.device-form button{width:100%;height:41px;border:0;border-radius:7px;background:var(--primary);color:#fff;font-weight:700;font-size:13px}
+.bound-list{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}.bound-row{min-height:60px;padding:9px 10px;display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:8px;align-items:center}
+.bound-row+.bound-row{border-top:1px solid var(--line)}.bound-choice{border:0;background:#fff;text-align:left;min-width:0}.bound-choice b{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bound-choice span{display:block;font-size:10px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+.api-field{width:100%;height:42px;border:1px solid var(--line);border-radius:7px;padding:0 10px;outline:0;font-size:13px}.api-actions{display:flex;justify-content:flex-end;margin-top:8px}
+
+.alert-overlay{position:fixed;inset:0;z-index:300;background:#a73535;color:#fff;display:none;align-items:center;justify-content:center;padding:24px}
+.alert-overlay.show{display:flex}.alert-box{text-align:center;max-width:330px}.alert-symbol{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;margin:0 auto 18px;font-size:28px;font-weight:800}
+.alert-box h2{font-size:24px}.alert-box p{font-size:13px;color:#f3cece;margin:9px 0 24px}.alert-box button{height:46px;padding:0 34px;border:0;border-radius:8px;background:#fff;color:#982f2f;font-weight:760}
+.toast{position:fixed;left:14px;right:14px;bottom:78px;z-index:400;background:#24312d;color:#fff;padding:11px 13px;border-radius:8px;font-size:12px;display:none;box-shadow:0 4px 18px rgba(0,0,0,.18)}
+
+@media(max-width:350px){
+  .tab-pane{padding-left:10px;padding-right:10px}.trend-summary{grid-template-columns:1fr 1fr}.device-hero{padding:13px}
+  .connection-pill{max-width:120px}.env-cell{height:84px;padding:11px}.env-value{font-size:21px}
 }
 </style>
 </head>
 <body>
+<div class="app-shell">
+  <main class="content-area" id="contentArea">
+    <section id="pane-monitor" class="tab-pane active">
+      <header class="topbar">
+        <div class="brand"><h1>AI Hear</h1><p>婴儿房边缘智能监护</p></div>
+        <button id="connectionPill" class="connection-pill error" onclick="openSettings()" aria-label="消息服务设置">
+          <span class="dot"></span><span id="connectionText">服务未启动</span>
+        </button>
+      </header>
 
-<!-- ═══════════════ 设备绑定 ═══════════════ -->
-<div id="bindPage" class="bind-overlay">
-  <div class="bind-card">
-    <h2>绑定设备</h2>
-    <p class="sub">首次使用，请输入 ESP8266 设备 ID</p>
-    <label>设备 ID</label>
-    <input type="text" id="bindDeviceId" placeholder="例: aihear_AABBCC" autocomplete="off">
-    <label>房间名称</label>
-    <input type="text" id="bindDeviceAlias" placeholder="例: 婴儿房 01" maxlength="24" autocomplete="off">
-    <p style="font-size:12px;color:#B8A9A5;text-align:left;margin-top:4px">
-      设备通电后，串口可看到 +DEVICEID:aihear_XXXXXX
-    </p>
-    <button class="btn-bind" onclick="doBind()">添加设备</button>
-    <div id="boundDeviceList" class="device-list"></div>
-    <p class="hint">选择设备后，告警、统计与通知将按设备隔离</p>
-  </div>
-</div>
+      <div class="section-head"><div><div class="section-title">监护设备</div><div class="section-meta" id="monitorCount">0 台设备</div></div><button class="icon-btn" onclick="openDevices()" aria-label="管理设备" title="管理设备">＋</button></div>
+      <div id="deviceStrip" class="device-strip"></div>
 
-<!-- ═══════════════ 告警弹窗 ═══════════════ -->
-<div id="overlay" class="overlay" onclick="dismissAlert()">
-  <div class="icon">🚼</div>
-  <div class="msg" id="overlayMsg">检测到婴儿哭声！</div>
-  <div class="sub" id="overlaySub"></div>
-  <button class="dismiss" onclick="event.stopPropagation();dismissAlert()">确认</button>
-</div>
-
-<!-- ═══════════════ 主内容区 ═══════════════ -->
-<div class="content-area">
-
-  <!-- 告警 -->
-  <div id="pane-alerts" class="tab-pane active">
-    <div class="err-msg" id="errMsg"></div>
-    <div class="status-bar">
-      <div class="left">
-        <span class="mqtt-dot off" id="mqttDot"></span>
-        <div>
-          <div class="stxt err" id="mqttLabel">MQTT 未连接</div>
-          <div class="stxt meta" id="mqttMeta">监视 0 台 · 收到 0 条</div>
-          <div class="dev" id="deviceInfo">未绑定设备</div>
+      <div class="device-hero">
+        <div class="device-hero-top">
+          <div><div id="selectedDeviceTitle" class="device-name">尚未绑定设备</div><div id="deviceInfo" class="device-id">请先添加设备</div></div>
+          <div id="deviceLiveState" class="live-state"><i></i><span>未上报</span></div>
+        </div>
+        <div class="hero-summary">
+          <div><small>哭声监听</small><strong id="heroListenState">等待同步</strong></div>
+          <div><small>最近事件</small><strong id="heroLastEvent">暂无事件</strong></div>
         </div>
       </div>
-      <button class="btn-toggle" id="btnToggle" onclick="toggleService()">开启监视</button>
-    </div>
-    <div class="control-panel">
-      <div class="environment-row"><span class="label">当前环境</span><strong id="envDisplay">--°C · --% RH</strong></div>
-      <div class="control-grid">
-        <button id="btnArm" class="control-btn arm" onclick="toggleArm()">布防</button>
-        <button id="btnMusic" class="control-btn music" onclick="toggleMusic()">播放音乐</button>
-        <button class="control-btn arm" onclick="sendCmdAll('arm')">一键布防</button>
-        <button class="control-btn disarm" onclick="sendCmdAll('disarm')">一键撤防</button>
+
+      <div class="section-head"><div class="section-title">实时环境</div><div id="envUpdated" class="section-meta">等待设备数据</div></div>
+      <div class="env-grid">
+        <div id="envTemp" class="env-cell temp"><div class="env-label"><span>温度</span><span class="env-status">--</span></div><div class="env-value"><span class="value">--</span><span class="env-unit">°C</span></div></div>
+        <div id="envHumi" class="env-cell humi"><div class="env-label"><span>湿度</span><span class="env-status">--</span></div><div class="env-value"><span class="value">--</span><span class="env-unit">%RH</span></div></div>
+        <div id="envPm" class="env-cell pm"><div class="env-label"><span>颗粒物趋势</span><span class="env-status">--</span></div><div class="env-value"><span class="value">--</span><span class="env-unit">指数</span></div></div>
+        <div id="envGas" class="env-cell gas"><div class="env-label"><span>气态污染趋势</span><span class="env-status">--</span></div><div class="env-value"><span class="value">--</span><span class="env-unit">指数</span></div></div>
       </div>
-    </div>
-    <div class="monitor-toolbar"><div><h3 style="display:inline">设备总览</h3><span id="monitorCount">0台</span></div><button class="monitor-add" onclick="showBind()" title="管理设备">＋</button></div>
-    <div id="deviceMonitorList" class="monitor-list"><div class="empty">尚未绑定设备</div></div>
-    <div class="detail-title"><span id="selectedDeviceTitle">设备详情</span><span>最近告警</span></div>
-    <div id="alertList"><div class="empty">暂无告警记录</div></div>
-    <div class="action-row">
-      <button class="action-btn manage" onclick="showBind()">管理设备</button>
-      <button class="action-btn clear" onclick="clearAlerts()">清空告警</button>
-    </div>
-  </div>
 
-  <!-- 喂养 -->
-  <div id="pane-feeding" class="tab-pane">
-    <div class="detail-title"><span id="feedDeviceTitle">喂养记录</span><span></span></div>
-    <div class="feed-row">
-      <input type="text" id="feedNote" placeholder="备注（配方奶/母乳/量ml）">
-      <button onclick="addFeeding()">记录</button>
-    </div>
-    <div id="feedList"><div class="empty">暂无喂养记录</div></div>
-  </div>
-
-  <!-- 统计 -->
-  <div id="pane-stats" class="tab-pane">
-    <div class="detail-title"><span id="statsDeviceTitle">数据统计</span><span></span></div>
-    <div class="chart-card"><h3>近7天 哭声 / 喂养</h3><div class="chart-wrap"><canvas id="chartCryFeeding"></canvas></div></div>
-    <div class="chart-card" style="margin-top:14px"><h3>近24小时 温湿度</h3><div class="chart-wrap"><canvas id="chartEnv"></canvas></div></div>
-  </div>
-
-  <!-- AI -->
-  <div id="pane-ai" class="tab-pane">
-    <div class="ai-card">
-      <h3>DeepSeek AI 分析</h3>
-      <div class="detail-title"><span id="aiDeviceTitle">当前设备</span><span></span></div>
-      <p style="font-size:13px;color:#B8A9A5;margin-bottom:10px">基于近期告警和喂养数据，分析宝宝作息规律</p>
-      <div class="ai-result" id="aiResult">点击下方按钮开始分析</div>
-      <button class="btn-ai" id="btnAi" onclick="runAiAnalysis()">开始分析</button>
-      <div class="api-cfg">
-        <label>DeepSeek API Key（已预置，可自行更换）</label>
-        <input type="password" id="apiKey" value="" placeholder="sk-xxxxxxxx" autocomplete="off">
-        <button onclick="saveApiKey()">保存</button>
+      <div class="section-head"><div class="section-title">哭声监听</div><div class="section-meta">环境监测始终运行</div></div>
+      <div class="monitor-panel">
+        <div class="monitor-line"><div class="monitor-copy"><strong id="listenTitle">状态同步中</strong><span>仅控制边缘 AI 哭声告警</span></div><button id="btnArm" class="switch-btn" onclick="toggleArm()" disabled>等待</button></div>
+        <div class="button-pair"><button onclick="sendCmdAll('arm')">全部开启</button><button onclick="sendCmdAll('disarm')">全部暂停</button></div>
+        <div class="monitor-line"><div class="monitor-copy"><strong>本地提示音</strong><span id="musicHint">用于演示与提前终止告警音</span></div><button id="btnMusic" class="text-btn" onclick="toggleMusic()" disabled>等待</button></div>
       </div>
-    </div>
-  </div>
+
+      <div class="section-head"><div class="section-title">事件抓拍</div><button class="text-btn" onclick="requestSnapshot()">手动抓拍</button></div>
+      <div id="snapshotCard" class="snapshot">
+        <img id="snapshotImage" alt="婴儿房事件抓拍">
+        <div class="snapshot-empty"><div><span>▣</span><b id="snapshotEmptyText">暂无事件抓拍</b></div></div>
+        <div class="snapshot-foot"><span id="snapshotCaption">哭声事件抓拍</span><span id="snapshotTime"></span></div>
+      </div>
+
+      <div class="section-head"><div class="section-title">最近事件</div><button class="text-btn" onclick="clearAlerts()">清空</button></div>
+      <div id="alertList" class="event-list"><div class="empty-state"><b>当前无事件</b>设备确认异常后会记录在这里</div></div>
+    </section>
+
+    <section id="pane-feeding" class="tab-pane">
+      <header class="page-heading"><h2>喂养</h2><p id="feedDeviceTitle">当前设备</p></header>
+      <div class="feed-form">
+        <label class="field-label">喂养类型</label>
+        <div id="feedType" class="segmented">
+          <button class="active" data-type="breast" onclick="selectFeedType(this)">母乳</button>
+          <button data-type="formula" onclick="selectFeedType(this)">配方奶</button>
+          <button data-type="food" onclick="selectFeedType(this)">辅食</button>
+        </div>
+        <div class="amount-row"><button class="step-btn" onclick="stepFeed(-1)" aria-label="减少">−</button><div class="amount-box"><input id="feedAmount" type="number" inputmode="decimal" min="1" max="999" value="15"><span id="feedUnit">分钟</span></div><button class="step-btn" onclick="stepFeed(1)" aria-label="增加">＋</button></div>
+        <input id="feedNote" class="note-input" type="text" maxlength="80" placeholder="备注（选填）">
+        <button class="save-feed" onclick="addFeeding()">保存喂养记录</button>
+      </div>
+      <div class="section-head"><div class="section-title">今日概览</div><div id="feedTodayDate" class="section-meta"></div></div>
+      <div class="feed-summary"><div><b id="feedTodayCount">0</b><span>今日次数</span></div><div><b id="feedTodayAmount">--</b><span>奶量</span></div><div><b id="feedLastTime">--</b><span>最近喂养</span></div></div>
+      <div class="section-head"><div class="section-title">喂养记录</div><div class="section-meta">按时间倒序</div></div>
+      <div id="feedList" class="feed-list"><div class="empty-state"><b>暂无喂养记录</b>记录后将用于趋势与护理分析</div></div>
+    </section>
+
+    <section id="pane-trends" class="tab-pane">
+      <header class="page-heading"><h2>趋势</h2><p id="statsDeviceTitle">当前设备</p></header>
+      <div class="trend-summary"><div class="trend-stat"><b id="statCry">0</b><span>今日哭声</span></div><div class="trend-stat"><b id="statFeed">0</b><span>今日喂养</span></div><div class="trend-stat"><b id="statTemp">--</b><span>24h 均温</span></div><div class="trend-stat"><b id="statAir">--</b><span>空气趋势</span></div></div>
+      <div class="chart-section"><div class="chart-title">哭声与喂养</div><div class="chart-sub">近 7 天事件次数</div><div class="chart-wrap"><canvas id="chartCryFeeding"></canvas></div></div>
+      <div class="chart-section"><div class="chart-title">温度与湿度</div><div class="chart-sub">近 24 小时平均值</div><div class="chart-wrap"><canvas id="chartEnv"></canvas></div></div>
+      <div class="chart-section"><div class="chart-title">空气质量趋势</div><div class="chart-sub">颗粒物与 MQ-135 相对基线指数</div><div class="chart-wrap"><canvas id="chartAir"></canvas></div></div>
+    </section>
+
+    <section id="pane-analysis" class="tab-pane">
+      <header class="topbar"><div class="brand"><h1>护理分析</h1><p id="aiDeviceTitle">当前设备</p></div><button class="icon-btn" onclick="openSettings()" aria-label="分析设置" title="设置">⋯</button></header>
+      <div class="analysis-summary"><div><b id="aiCryCount">0</b><span>今日哭声</span></div><div><b id="aiFeedCount">0</b><span>今日喂养</span></div><div><b id="aiEnvCount">0</b><span>环境事件</span></div></div>
+      <div class="section-head"><div><div class="section-title">DeepSeek 护理建议</div><div class="section-meta">基于当前设备近期数据</div></div></div>
+      <div id="aiResult" class="analysis-result empty">暂无分析结果</div>
+      <button id="btnAi" class="analysis-action" onclick="runAiAnalysis()">生成护理分析</button>
+      <div class="data-scope"><span>哭声事件</span><span>喂养记录</span><span>温湿度趋势</span><span>空气质量趋势</span></div>
+    </section>
+  </main>
+
+  <nav class="tab-bar" aria-label="主导航">
+    <button class="active" data-tab="monitor" onclick="switchTab('monitor',this)"><span class="nav-icon">◎</span><span>监护</span></button>
+    <button data-tab="feeding" onclick="switchTab('feeding',this)"><span class="nav-icon">＋</span><span>喂养</span></button>
+    <button data-tab="trends" onclick="switchTab('trends',this)"><span class="nav-icon">⌁</span><span>趋势</span></button>
+    <button data-tab="analysis" onclick="switchTab('analysis',this)"><span class="nav-icon">✦</span><span>分析</span></button>
+  </nav>
 </div>
 
-<!-- ═══════════════ 底部导航栏 ═══════════════ -->
-<div class="tab-bar">
-  <button class="active" onclick="switchTab('alerts')"><span class="tb-icon">警</span>告警</button>
-  <button onclick="switchTab('feeding')"><span class="tb-icon">记</span>喂养</button>
-  <button onclick="switchTab('stats')"><span class="tb-icon">数</span>统计</button>
-  <button onclick="switchTab('ai')"><span class="tb-icon">AI</span>分析</button>
-</div>
+<div id="deviceSheet" class="modal" onclick="closeSheetOnBackdrop(event,'deviceSheet')"><div class="sheet">
+  <div class="sheet-grip"></div><div class="sheet-head"><h3>设备管理</h3><button class="close-btn" onclick="closeSheet('deviceSheet')" aria-label="关闭">×</button></div>
+  <div class="device-form"><input id="bindDeviceId" type="text" placeholder="设备 ID，例如 aihear_aabbcc" autocomplete="off"><input id="bindDeviceAlias" type="text" placeholder="房间名称，例如 宝宝房" maxlength="24" autocomplete="off"><button onclick="doBind()">添加设备</button></div>
+  <div id="boundDeviceList" class="bound-list"></div>
+</div></div>
+
+<div id="settingsSheet" class="modal" onclick="closeSheetOnBackdrop(event,'settingsSheet')"><div class="sheet">
+  <div class="sheet-grip"></div><div class="sheet-head"><h3>设置</h3><button class="close-btn" onclick="closeSheet('settingsSheet')" aria-label="关闭">×</button></div>
+  <div class="settings-block">
+    <div class="settings-row"><div class="settings-copy"><b>消息服务</b><span id="serviceMeta">接收设备告警与环境数据</span></div><button id="btnToggle" class="text-btn primary" onclick="toggleService()">启动服务</button></div>
+    <div class="settings-row"><div class="settings-copy"><b>设备</b><span id="settingsDeviceCount">尚未绑定</span></div><button class="text-btn" onclick="closeSheet('settingsSheet');openDevices()">管理</button></div>
+  </div>
+  <div class="settings-block" style="padding:12px"><label class="field-label">DeepSeek API Key</label><input class="api-field" type="password" id="apiKey" placeholder="sk-xxxxxxxx" autocomplete="off"><div class="api-actions"><button class="text-btn soft" onclick="saveApiKey()">保存</button></div></div>
+</div></div>
+
+<div id="alertOverlay" class="alert-overlay" onclick="dismissAlert()"><div class="alert-box" onclick="event.stopPropagation()"><div class="alert-symbol">!</div><h2>检测到婴儿哭声</h2><p id="overlaySub">边缘 AI 已确认哭声事件</p><button onclick="dismissAlert()">停止告警音</button></div></div>
+<div id="toast" class="toast"></div>
 
 <script>
+'use strict';
 var devices=[],deviceSummaries=[],deviceId='',started=false,mqttStatus=0,overlayActive=false;
-var beepTimer=null,audioOsc=null,audioGain=null,audioCtx=null;
+var controlStates={},envCache={},lastEnvSampleKey={},feedType='breast';
+var chartCry=null,chartEnv=null,chartAir=null,toastTimer=null;
 
-// ═══════════════ 设备绑定 ═══════════════
+function normalizeDeviceId(raw){var id=(raw||'').trim().toLowerCase();if(/^[0-9a-f]{6}$/.test(id))id='aihear_'+id;return /^aihear_[0-9a-f]{6}$/.test(id)?id:'';}
+function esc(value){var node=document.createElement('div');node.textContent=value==null?'':String(value);return node.innerHTML;}
+function parseJson(value,fallback){try{return JSON.parse(value||'')||fallback;}catch(e){return fallback;}}
+function isCry(cls){return /cry|help/i.test(cls||'');}
+function isRecovery(cls){return /recover|clear|normal/i.test(cls||'');}
+function isEnvEvent(cls){return /^(temp|humi|pm|particle|mq|gas|air)_/i.test(cls||'');}
+function formatAgo(ts){if(!ts)return'未上报';var sec=Math.max(0,Math.floor((Date.now()-ts)/1000));if(sec<60)return sec+' 秒前';if(sec<3600)return Math.floor(sec/60)+' 分钟前';if(sec<86400)return Math.floor(sec/3600)+' 小时前';return Math.floor(sec/86400)+' 天前';}
+function formatTime(ts){if(!ts)return'--';return new Date(ts).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});}
+function formatDuration(ms){var min=Math.max(1,Math.round((Number(ms)||0)/60000));return min<60?min+' 分钟':Math.floor(min/60)+' 小时 '+(min%60)+' 分钟';}
+function showError(message){var box=document.getElementById('toast');box.textContent=message;box.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){box.style.display='none';},3200);}
+
 function initBind(){
   var old=normalizeDeviceId(localStorage.getItem('device_id')||'');
   if(typeof Android!=='undefined'){
     if(old){try{Android.addBoundDevice(old);}catch(e){}}
-    try{devices=JSON.parse(Android.getBoundDevices()||'[]');}catch(e){devices=[];}
-  }else{
-    try{devices=JSON.parse(localStorage.getItem('bound_devices')||'[]');}catch(e){devices=[];}
-    if(old&&devices.indexOf(old)<0)devices.push(old);
-  }
+    devices=parseJson(Android.getBoundDevices&&Android.getBoundDevices(),'[]');
+  }else{devices=parseJson(localStorage.getItem('bound_devices'),'[]');if(old&&devices.indexOf(old)<0)devices.push(old);}
+  if(!Array.isArray(devices))devices=[];
   devices=devices.map(normalizeDeviceId).filter(function(v,i,a){return v&&a.indexOf(v)===i;});
   deviceId=normalizeDeviceId(localStorage.getItem('selected_device')||'');
   if(devices.indexOf(deviceId)<0)deviceId=devices[0]||'';
   if(deviceId)localStorage.setItem('selected_device',deviceId);
-  renderDeviceList();updateDeviceInfo();
-  if(deviceId)document.getElementById('bindPage').classList.add('hidden');
-}
-function normalizeDeviceId(raw){
-  var id=(raw||'').trim().toLowerCase();
-  if(/^[0-9a-f]{6}$/.test(id))id='aihear_'+id;
-  return /^aihear_[0-9a-f]{6}$/.test(id)?id:'';
+  renderAllDeviceUi();
+  if(!deviceId)openDevices();
 }
 function persistFallbackDevices(){localStorage.setItem('bound_devices',JSON.stringify(devices));}
 function loadDeviceSummaries(){
-  if(typeof Android!=='undefined'){
-    try{deviceSummaries=JSON.parse(Android.getDeviceSummaries()||'[]');}catch(e){deviceSummaries=[];}
-  }else deviceSummaries=devices.map(function(id){return{deviceId:id,alias:id,lastSeen:0,todayAlerts:0};});
-  return deviceSummaries;
+  if(typeof Android!=='undefined'&&Android.getDeviceSummaries)deviceSummaries=parseJson(Android.getDeviceSummaries(),'[]');
+  else deviceSummaries=devices.map(function(id){return{deviceId:id,alias:id,lastSeen:0,todayAlerts:0};});
+  if(!Array.isArray(deviceSummaries))deviceSummaries=[];return deviceSummaries;
 }
-function deviceAlias(id){
-  for(var i=0;i<deviceSummaries.length;i++)if(deviceSummaries[i].deviceId===id)return deviceSummaries[i].alias||id;
-  return id;
+function deviceSummary(id){for(var i=0;i<deviceSummaries.length;i++)if(deviceSummaries[i].deviceId===id)return deviceSummaries[i];return{deviceId:id,alias:id,lastSeen:0,todayAlerts:0};}
+function deviceAlias(id){return deviceSummary(id).alias||id;}
+function renderAllDeviceUi(){loadDeviceSummaries();renderDeviceStrip();renderDeviceList();updateDeviceInfo();renderMonitorList();}
+function renderDeviceStrip(){
+  var box=document.getElementById('deviceStrip'),html='',now=Date.now();
+  devices.forEach(function(id){
+    var summary=deviceSummary(id),online=summary.lastSeen&&now-summary.lastSeen<90000,state=controlStates[id],armed=state&&state.armed;
+    html+='<div class="device-overview'+(id===deviceId?' selected':'')+'"><button class="device-select" onclick="selectDevice(\''+id+'\')"><i class="'+(online?'online':'')+'"></i><span><b>'+esc(deviceAlias(id))+'</b><span>'+(online?'在线 · '+formatAgo(summary.lastSeen):formatAgo(summary.lastSeen))+'</span></span></button><button class="device-arm '+(armed?'':'paused')+'" '+(state?'':'disabled')+' onclick="toggleDeviceArm(\''+id+'\')">'+(state?(armed?'暂停':'开启'):'同步中')+'</button></div>';
+  });
+  box.innerHTML=html||'<div class="empty-state"><b>尚未绑定设备</b>点击右上角添加设备</div>';
 }
 function renderDeviceList(){
-  var summaries=loadDeviceSummaries();
-  var lookup={};summaries.forEach(function(s){lookup[s.deviceId]=s.lastSeen||0;});
-  var sorted=devices.slice().sort(function(a,b){return lookup[b]-lookup[a];});
-  var box=document.getElementById('boundDeviceList'),h='';
-  sorted.forEach(function(id){
-    h+='<div class="device-row"><button class="device-choice'+(id===deviceId?' selected':'')+'" onclick="selectDevice(\''+id+'\')">'+
-      esc(deviceAlias(id))+' · '+esc(id)+(id===deviceId?' · 当前':'')+'</button><button class="device-remove" aria-label="移除设备" onclick="removeDevice(\''+id+'\')">×</button></div>';
-  });
-  box.innerHTML=h||'<div class="empty" style="padding:10px 0">尚未绑定设备</div>';
+  var box=document.getElementById('boundDeviceList'),html='';
+  devices.forEach(function(id){html+='<div class="bound-row"><button class="bound-choice" onclick="selectDevice(\''+id+'\');closeSheet(\'deviceSheet\')"><b>'+esc(deviceAlias(id))+(id===deviceId?' · 当前':'')+'</b><span>'+esc(id)+'</span></button><button class="delete-btn" onclick="removeDevice(\''+id+'\')" aria-label="移除设备">×</button></div>';});
+  box.innerHTML=html||'<div class="empty-state"><b>尚未绑定设备</b>请输入设备 ID 添加</div>';
 }
 function updateDeviceInfo(){
-  var dn=deviceId?deviceAlias(deviceId)+' · '+deviceId:'未绑定设备';
-  document.getElementById('deviceInfo').textContent=dn;
-  document.getElementById('selectedDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'设备详情';
-  document.getElementById('feedDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'喂养记录';
-  document.getElementById('statsDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'数据统计';
-  document.getElementById('aiDeviceTitle').textContent=deviceId?deviceAlias(deviceId):'当前设备';
+  var alias=deviceId?deviceAlias(deviceId):'尚未绑定设备';
+  document.getElementById('selectedDeviceTitle').textContent=alias;
+  document.getElementById('deviceInfo').textContent=deviceId||'请先添加设备';
+  document.getElementById('feedDeviceTitle').textContent=deviceId?alias+' · '+deviceId:'尚未选择设备';
+  document.getElementById('statsDeviceTitle').textContent=deviceId?alias+' · 近 7 天与 24 小时':'尚未选择设备';
+  document.getElementById('aiDeviceTitle').textContent=deviceId?alias+' · '+deviceId:'尚未选择设备';
+  document.getElementById('monitorCount').textContent=devices.length+' 台设备';
+  document.getElementById('settingsDeviceCount').textContent=devices.length?devices.length+' 台已绑定':'尚未绑定';
 }
-function showBind(){document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';renderDeviceList();document.getElementById('bindPage').classList.remove('hidden');}
 function selectDevice(id){
   id=normalizeDeviceId(id);if(!id||devices.indexOf(id)<0)return;
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
-  renderDeviceList();updateDeviceInfo();document.getElementById('bindPage').classList.add('hidden');
-  loadAlerts();loadStats();renderMonitorList();
-  if(chartCry){chartCry.destroy();chartCry=null;}
-  if(chartEnv){chartEnv.destroy();chartEnv=null;}
-  document.getElementById('aiResult').textContent='点击下方按钮开始分析';
-  /* immediately refresh per-device display */
-  updateArmBtn();updateMusicBtn();pollEnv();
+  if(chartCry){chartCry.destroy();chartCry=null;}if(chartEnv){chartEnv.destroy();chartEnv=null;}if(chartAir){chartAir.destroy();chartAir=null;}
+  renderAllDeviceUi();pollControlState();pollEnv();loadAlerts();loadFeedings();loadStats();updateAnalysisSummary();pollSnapshot();
+  document.getElementById('aiResult').textContent='暂无分析结果';document.getElementById('aiResult').classList.add('empty');
 }
 function doBind(){
-  var id=normalizeDeviceId(document.getElementById('bindDeviceId').value);
-  var alias=document.getElementById('bindDeviceAlias').value.trim();
-  if(!id){alert('设备 ID 格式应为 aihear_ 加 6 位十六进制字符');return;}
-  if(typeof Android!=='undefined'&&!Android.addBoundDevice(id)){alert('绑定失败');return;}
-  if(typeof Android!=='undefined'&&alias)Android.setDeviceAlias(id,alias);
+  var id=normalizeDeviceId(document.getElementById('bindDeviceId').value),alias=document.getElementById('bindDeviceAlias').value.trim();
+  if(!id){showError('设备 ID 应为 aihear_ 加 6 位十六进制字符');return;}
+  if(typeof Android!=='undefined'&&Android.addBoundDevice&&!Android.addBoundDevice(id)){showError('设备绑定失败');return;}
+  if(typeof Android!=='undefined'&&alias&&Android.setDeviceAlias)Android.setDeviceAlias(id,alias);
   if(devices.indexOf(id)<0)devices.unshift(id);persistFallbackDevices();
-  document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';selectDevice(id);
+  document.getElementById('bindDeviceId').value='';document.getElementById('bindDeviceAlias').value='';selectDevice(id);closeSheet('deviceSheet');
 }
 function removeDevice(id){
-  if(!confirm('移除设备 '+id+'？历史记录不会删除。'))return;
-  if(typeof Android!=='undefined'){
-    if(!Android.removeBoundDevice(id)){showError('设备移除失败');return;}
-    try{devices=JSON.parse(Android.getBoundDevices()||'[]');}catch(e){showError('设备列表刷新失败');return;}
-  }else devices=devices.filter(function(v){return v!==id;});
-  devices=devices.map(normalizeDeviceId).filter(Boolean);persistFallbackDevices();
-  if(deviceId===id){
-    deviceId=devices[0]||'';
-    if(deviceId){localStorage.setItem('selected_device',deviceId);localStorage.setItem('device_id',deviceId);}
-    else{localStorage.removeItem('selected_device');localStorage.removeItem('device_id');}
-  }
-  renderDeviceList();updateDeviceInfo();renderMonitorList();
-  if(!deviceId)document.getElementById('bindPage').classList.remove('hidden');
+  if(!confirm('移除 '+deviceAlias(id)+'？历史记录会保留。'))return;
+  if(typeof Android!=='undefined'&&Android.removeBoundDevice&&!Android.removeBoundDevice(id)){showError('设备移除失败');return;}
+  devices=devices.filter(function(item){return item!==id;});persistFallbackDevices();
+  if(deviceId===id){deviceId=devices[0]||'';if(deviceId){localStorage.setItem('selected_device',deviceId);}else{localStorage.removeItem('selected_device');}}
+  renderAllDeviceUi();if(!deviceId)openDevices();
 }
+function openDevices(){renderDeviceList();document.getElementById('deviceSheet').classList.add('show');}
+function openSettings(){document.getElementById('settingsSheet').classList.add('show');}
+function closeSheet(id){var el=document.getElementById(id);if(id==='deviceSheet'&&!deviceId)return;el.classList.remove('show');}
+function closeSheetOnBackdrop(evt,id){if(evt.target.id===id)closeSheet(id);}
 
-// ═══════════════ 服务控制 ═══════════════
 function toggleService(){started?stopService():startService();}
-function startSvc(){startService();}
 function startService(){
-  if(!devices.length||!deviceId){showBind();return;}
-  hideError();
-  if(typeof Android!=='undefined'){
-    try{Android.startService();}catch(e){showError('启动失败: '+e);return;}
-    Android.setMonitoredDevice('',true);  /* monitor all bound devices */
-  }
-  started=true;localStorage.setItem('started','1');updateUI();
+  if(!devices.length){closeSheet('settingsSheet');openDevices();return;}
+  if(typeof Android!=='undefined'){try{Android.startService();Android.setMonitoredDevice('',true);}catch(e){showError('消息服务启动失败');return;}}
+  started=true;localStorage.setItem('started','1');updateServiceUi();
 }
 function stopService(){
-  if(typeof Android!=='undefined'){
-    try{Android.stopAlarm();Android.stopService();}catch(e){}
-    Android.setMonitoredDevice('',false);
-  }
-  started=false;localStorage.removeItem('started');updateUI();
+  if(typeof Android!=='undefined'){try{Android.stopAlarm();Android.stopService();Android.setMonitoredDevice('',false);}catch(e){}}
+  started=false;localStorage.removeItem('started');mqttStatus=0;updateServiceUi();
 }
-function showError(m){var e=document.getElementById('errMsg');e.textContent=m;e.style.display='block';setTimeout(function(){e.style.display='none'},4000);}
-function hideError(){document.getElementById('errMsg').style.display='none';}
-
-// ═══════════════ 告警弹窗 ═══════════════
-function onNewAlert(cls,score){
-  if(overlayActive)return;
-  // env alerts: system notification only, no fullscreen overlay
-  if(/^temp_|^humi_/.test(cls)){loadAlerts();return;}
-  var pct=Math.round((score||0)*100);
-  document.getElementById('overlayMsg').textContent='🚼 检测到婴儿哭声！';
-  document.getElementById('overlaySub').textContent='类别: '+cls+'  置信度: '+pct+'%';
-  document.getElementById('overlay').classList.add('show');overlayActive=true;
-  startBeep();if(navigator.vibrate)navigator.vibrate([500,200,500,200,500,200,1000]);
-  loadAlerts();
+function updateServiceUi(){
+  var button=document.getElementById('btnToggle'),pill=document.getElementById('connectionPill'),text=document.getElementById('connectionText');
+  pill.className='connection-pill '+(mqttStatus===2?'online':mqttStatus===1?'connecting':'error');
+  if(!started){text.textContent='服务未启动';button.textContent='启动服务';button.className='text-btn primary';document.getElementById('serviceMeta').textContent='接收设备告警与环境数据';}
+  else if(mqttStatus===2){text.textContent='消息已连接';button.textContent='停止服务';button.className='text-btn danger';document.getElementById('serviceMeta').textContent='MQTT 已连接，后台持续接收';}
+  else if(mqttStatus===1){text.textContent='正在连接';button.textContent='停止服务';button.className='text-btn danger';document.getElementById('serviceMeta').textContent='正在连接 MQTT';}
+  else{text.textContent='等待连接';button.textContent='停止服务';button.className='text-btn danger';document.getElementById('serviceMeta').textContent='MQTT 暂未连接';}
 }
-function dismissAlert(){
-  document.getElementById('overlay').classList.remove('show');overlayActive=false;stopBeep();
-  if(typeof Android!=='undefined')Android.stopAlarm();if(navigator.vibrate)navigator.vibrate(0);
-}
-function startBeep(){
-  stopBeep();
-  try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();audioOsc=audioCtx.createOscillator();audioGain=audioCtx.createGain();
-    audioOsc.type='square';audioOsc.frequency.value=880;audioGain.gain.value=0;
-    audioOsc.connect(audioGain);audioGain.connect(audioCtx.destination);audioOsc.start();
-    var on=true;beepTimer=setInterval(function(){if(audioGain)audioGain.gain.value=on?0.35:0;on=!on;},300);}catch(e){}
-}
-function stopBeep(){
-  if(beepTimer){clearInterval(beepTimer);beepTimer=null;}
-  try{if(audioOsc){audioOsc.stop();audioOsc.disconnect();}if(audioGain)audioGain.disconnect();if(audioCtx)audioCtx.close();}catch(e){}
-  audioOsc=null;audioGain=null;audioCtx=null;
-}
-
-// ═══════════════ 告警 CRUD ═══════════════
-function loadAlerts(){
-  var list=document.getElementById('alertList');
-  if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(deviceId?Android.getAlertsForDevice(deviceId):Android.getAlerts()||'[]');
-  if(!data.length){list.innerHTML='<div class="empty">🎉 暂无告警记录</div>';return;}
-  var h='';
-  for(var i=0;i<data.length;i++){
-    var a=data[i],d=new Date(a.time),cry=/cry|help/i.test(a.cls||''),env=/^temp_|^humi_/.test(a.cls||'');
-    var icon=cry?'🚼':env?(/^temp_/.test(a.cls)?'🌡️':'💧'):'🔔';
-    var cardClass=cry?'cry-card':env?'env-card':'';
-    h+='<div class="alert-item'+(cardClass?' '+cardClass:'')+'"><span class="icon">'+icon+'</span>'+
-      '<div class="info"><div class="cls'+(cry?' cry':'')+(env?' env':'')+'">'+esc(a.cls)+'</div>'+
-      '<div class="meta">'+d.toLocaleString('zh-CN')+' · '+esc(a.deviceId||deviceId)+' · '+(env?esc(a.cls):Math.round((a.score||0)*100)+'%')+'</div></div>'+
-      '<button class="del" onclick="delAlert('+a.id+')">删除</button></div>';
-  }
-  list.innerHTML=h;
-}
-function delAlert(id){if(typeof Android!=='undefined')Android.deleteAlert(id);loadAlerts();}
-function clearAlerts(){if(!confirm('确定清空 '+(deviceId||'所有')+' 的告警？'))return;if(typeof Android!=='undefined')Android.clearAlertsForDevice(deviceId);loadAlerts();}
-
-function formatAgo(ts){
-  if(!ts)return'未上报';var sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
-  if(sec<60)return sec+'秒前';if(sec<3600)return Math.floor(sec/60)+'分钟前';return Math.floor(sec/3600)+'小时前';
-}
-function renderMonitorList(){
-  var list=document.getElementById('deviceMonitorList'),data=loadDeviceSummaries();
-  data.sort(function(a,b){
-    var aa=a.lastAlert&&Date.now()-a.lastAlert.time<600000?1:0,ba=b.lastAlert&&Date.now()-b.lastAlert.time<600000?1:0;
-    if(aa!==ba)return ba-aa;return(b.lastSeen||0)-(a.lastSeen||0);
-  });
-  document.getElementById('monitorCount').textContent=data.length+'台';
-  if(!data.length){list.innerHTML='<div class="empty" style="padding:18px 0">尚未绑定设备</div>';return;}
-  var h='';data.forEach(function(d){
-    var online=d.lastSeen&&Date.now()-d.lastSeen<90000;var cs=controlStates[d.deviceId],alerting=cs&&cs.music===true;
-    var state=alerting?'alert':online?'online':'',status=alerting?'告警中':online?'在线 · '+formatAgo(d.lastSeen):formatAgo(d.lastSeen);
-    h+='<button class="monitor-row'+(d.deviceId===deviceId?' selected':'')+(alerting?' alerting':'')+'" onclick="selectDevice(\''+d.deviceId+'\')">'+
-      '<span class="monitor-state '+state+'"></span><span class="monitor-main"><span class="monitor-name">'+esc(d.alias||d.deviceId)+'</span><span class="monitor-meta">'+esc(d.deviceId)+' · '+status+'</span></span>'+
-      '<span class="monitor-count"><b>'+Number(d.todayAlerts||0)+'</b>今日</span></button>';
-  });list.innerHTML=h;
-}
-
-// ═══════════════ 喂养 ═══════════════
-function addFeeding(){
-  var n=document.getElementById('feedNote').value.trim();
-  if(typeof Android!=='undefined')Android.addFeeding(deviceId,n);
-  document.getElementById('feedNote').value='';loadFeedings();
-}
-function loadFeedings(){
-  var list=document.getElementById('feedList');
-  if(typeof Android==='undefined'){list.innerHTML='<div class="empty">加载中...</div>';return;}
-  var data=JSON.parse(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()||'[]');
-  if(!data.length){list.innerHTML='<div class="empty">暂无喂养记录</div>';return;}
-  var h='';
-  for(var i=0;i<data.length;i++){
-    var f=data[i],d=new Date(f.time);
-    h+='<div class="feed-item"><div class="fleft"><div class="fts">喂养记录</div>'+
-      '<div class="fnt">'+d.toLocaleString('zh-CN')+' · '+esc(f.note||'无备注')+'</div></div>'+
-      '<button class="del" onclick="delFeeding('+f.id+')">删除</button></div>';
-  }
-  list.innerHTML=h;
-}
-function delFeeding(id){if(typeof Android!=='undefined')Android.deleteFeeding(id);loadFeedings();}
-
-// ═══════════════ 统计 ═══════════════
-// ═══════════ Chart.js 实例 ═══════════
-var chartCry=null,chartEnv=null;
-
-function loadStats(){
-  if(typeof Android==='undefined'||!deviceId)return;
-  // ═══ Chart 1: 7-day cry + feeding ═══
-  try{var cfData=JSON.parse(Android.getDailyCryAndFeeding(deviceId,7)||'[]');}catch(e){cfData=[];}
-  var labels=[],cryData=[],feedData=[];
-  for(var i=0;i<cfData.length;i++){
-    labels.push(new Date(cfData[i].dayTs).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'}));
-    cryData.push(cfData[i].cryCount||0);feedData.push(cfData[i].feedCount||0);
-  }
-  if(!chartCry){
-    var ctx1=document.getElementById('chartCryFeeding').getContext('2d');
-    var g1=ctx1.createLinearGradient(0,0,0,240);g1.addColorStop(0,'rgba(217,77,77,.18)');g1.addColorStop(1,'rgba(217,77,77,0)');
-    var g2=ctx1.createLinearGradient(0,0,0,240);g2.addColorStop(0,'rgba(20,125,114,.15)');g2.addColorStop(1,'rgba(20,125,114,0)');
-    chartCry=new Chart(ctx1,{type:'line',data:{labels:labels,datasets:[
-      {label:'哭声',data:cryData,borderColor:'#d94d4d',backgroundColor:g1,borderWidth:2,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#d94d4d',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7},
-      {label:'喂养',data:feedData,borderColor:'#147d72',backgroundColor:g2,borderWidth:2,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#147d72',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyleWidth:8,padding:20,font:{size:12,family:'-apple-system,PingFang SC,sans-serif'},color:'#4A5553'}}},scales:{y:{beginAtZero:true,ticks:{stepSize:1,font:{size:11},color:'#889593'},grid:{color:'#eef1f0',drawBorder:false}},x:{ticks:{font:{size:11},color:'#889593'},grid:{display:false}}}}});
-  }else{
-    chartCry.data.labels=labels;chartCry.data.datasets[0].data=cryData;chartCry.data.datasets[1].data=feedData;chartCry.update();
-  }
-
-  // ═══ Chart 2: 24h temp + humi ═══
-  try{var envData=JSON.parse(Android.getEnvHourly(deviceId,24)||'[]');}catch(e){envData=[];}
-  var envLabels=[],tempData=[],humiData=[];
-  for(var i=0;i<envData.length;i++){
-    var d=new Date(envData[i].hourTs);
-    envLabels.push(d.getHours()+':00');
-    tempData.push(envData[i].tempAvg!=null?+envData[i].tempAvg:NaN);
-    humiData.push(envData[i].humiAvg!=null?+envData[i].humiAvg:NaN);
-  }
-  if(!chartEnv){
-    var ctx2=document.getElementById('chartEnv').getContext('2d');
-    var tg=ctx2.createLinearGradient(0,0,0,240);tg.addColorStop(0,'rgba(230,100,60,.25)');tg.addColorStop(1,'rgba(230,100,60,0)');
-    var hg=ctx2.createLinearGradient(0,0,0,240);hg.addColorStop(0,'rgba(50,120,200,.18)');hg.addColorStop(1,'rgba(50,120,200,0)');
-    chartEnv=new Chart(ctx2,{type:'line',data:{labels:envLabels,datasets:[
-      {label:'温度 (°C)',data:tempData,borderColor:'#e6643c',backgroundColor:tg,borderWidth:2.5,fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#e6643c',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7,yAxisID:'y'},
-      {label:'湿度 (%RH)',data:humiData,borderColor:'#4a8fd4',backgroundColor:hg,borderWidth:2.5,fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#4a8fd4',pointBorderColor:'#fff',pointBorderWidth:2,pointHoverRadius:7,yAxisID:'y1'}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyleWidth:8,padding:20,font:{size:12,family:'-apple-system,PingFang SC,sans-serif'},color:'#4A5553'}}},scales:{y:{type:'linear',position:'left',min:0,max:45,ticks:{font:{size:11},color:'#e6643c',callback:function(v){return v+'°'}},grid:{color:'#eef1f0',drawBorder:false}},y1:{type:'linear',position:'right',min:0,max:100,ticks:{font:{size:11},color:'#4a8fd4'},grid:{display:false}},x:{ticks:{font:{size:11},color:'#889593',maxTicksLimit:8},grid:{display:false}}},spanGaps:false}});
-  }else{
-    chartEnv.data.labels=envLabels;chartEnv.data.datasets[0].data=tempData;chartEnv.data.datasets[1].data=humiData;chartEnv.update();
-  }
-}
-
-// ═══════════════ MQTT 状态 ═══════════════
 function pollMqtt(){
-  if(typeof Android==='undefined')return;
-  var s=Android.getConnStatus();mqttStatus=s;
-  var dot=document.getElementById('mqttDot'),label=document.getElementById('mqttLabel');
-  dot.className='mqtt-dot '+(s===2?'on':s===1?'mid':'off');
-  var mc=Android.getMsgCount();
-  if(s===2){label.textContent='🟢 MQTT 已连接';label.className='stxt ok';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 '+mc+' 条';}
-  else if(s===1){label.textContent='🟡 MQTT 连接中...';label.className='stxt err';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 '+mc+' 条';}
-  else{label.textContent='🔴 MQTT 未连接';label.className='stxt err';document.getElementById('mqttMeta').textContent='监视 '+devices.length+' 台 · 收到 0 条';}
-  if(deviceId){
-    var seen=Android.getDeviceLastSeen(deviceId),suffix=seen&&Date.now()-seen<90000?' · 在线':' · 未上报';
-    document.getElementById('deviceInfo').textContent=deviceAlias(deviceId)+' · '+deviceId+suffix;
-  }
+  if(typeof Android!=='undefined'&&Android.getConnStatus)mqttStatus=Number(Android.getConnStatus())||0;
+  updateServiceUi();if(deviceId&&typeof Android!=='undefined'&&Android.getDeviceLastSeen){var seen=Android.getDeviceLastSeen(deviceId);var summary=deviceSummary(deviceId);summary.lastSeen=seen||summary.lastSeen;}
   renderMonitorList();
 }
 
-// ═══════════════ AI ═══════════════
-function saveApiKey(){var k=document.getElementById('apiKey').value.trim();if(k)localStorage.setItem('ds_api_key',k);alert('已保存');}
-function runAiAnalysis(){
-  var apiKey=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value.trim();
-  if(!apiKey){alert('请先填入 DeepSeek API Key');return;}
-  var btn=document.getElementById('btnAi');btn.textContent='分析中...';btn.disabled=true;
-  var alerts=JSON.parse((typeof Android!=='undefined'?Android.getAlertsForDevice(deviceId):null)||'[]');
-  var feeds=JSON.parse((typeof Android!=='undefined'?(deviceId?Android.getFeedingsForDevice(deviceId):Android.getFeedings()):null)||'[]');
-  var ds=new Date();ds.setHours(0,0,0,0);ds=ds.getTime();var ta=0,tf=0,envCount=0,at=[];
-  for(var i=0;i<alerts.length;i++){
-    var cls=alerts[i].cls||'';
-    if(cls.indexOf('baby_cry')>=0||cls.indexOf('cry')>=0){
-      if(alerts[i].time>=ds)ta++;at.push(new Date(alerts[i].time).toLocaleTimeString('zh-CN'));
-    }else if(/^temp_|^humi_/.test(cls)){
-      if(alerts[i].time>=ds)envCount++;
-    }
-  }
-  for(var i=0;i<feeds.length;i++){if(feeds[i].time>=ds)tf++;}
-  var devName=deviceId?deviceAlias(deviceId):'全部设备';
-  // use SQLite env_hourly for full 24h data (same source as chart 2)
-  var envData=JSON.parse((typeof Android!=='undefined'?Android.getEnvHourly(deviceId,24):null)||'[]');
-  var envStr='',tempSum=0,humiSum=0,envSamples=0;
-  for(var i=0;i<envData.length;i++){
-    if(envData[i].tempAvg!=null){tempSum+=envData[i].tempAvg;envSamples++;}
-    if(envData[i].humiAvg!=null)humiSum+=envData[i].humiAvg;
-  }
-  if(envSamples>0)envStr='\n环境（24h）：\n- 平均温度: '+(tempSum/envSamples).toFixed(1)+'℃\n- 平均湿度: '+Math.round(humiSum/envSamples)+'%';
-  if(envCount>0)envStr+='\n- 今日温湿度异常: '+envCount+' 次';
-  var prompt='你是婴儿护理专家，同时懂环境健康。设备: '+devName+' ('+deviceId+')\n数据：\n- 今日哭声: '+ta+' 次\n'+(at.length?'- 最近哭声: '+at.slice(0,5).join(', ')+'\n':'')+'- 今日喂养: '+tf+' 次\n- 累计哭声: '+alerts.filter(function(a){var c=a.cls||'';return c.indexOf('baby_cry')>=0||c.indexOf('cry')>=0;}).length+' 次 / '+feeds.length+' 次喂养'+envStr+'\n\n请综合分析哭声规律、喂养间隔、温湿度趋势及其异常对宝宝舒适度的影响、综合护理建议。限300字。';
-  fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-    body:JSON.stringify({model:'deepseek-v4-pro',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:0.7})
-  }).then(function(r){return r.json()}).then(function(d){
-    document.getElementById('aiResult').textContent=d.choices?d.choices[0].message.content:'失败: '+JSON.stringify(d);
-    btn.textContent='开始分析';btn.disabled=false;
-  }).catch(function(e){document.getElementById('aiResult').textContent='网络错误: '+e.message;btn.textContent='开始分析';btn.disabled=false;});
+function renderMonitorList(){
+  var data=loadDeviceSummaries(),now=Date.now();
+  data.sort(function(a,b){return(b.lastSeen||0)-(a.lastSeen||0);});
+  var active=deviceSummary(deviceId),seen=active.lastSeen||0,online=seen&&now-seen<90000;
+  var live=document.getElementById('deviceLiveState');live.className='live-state'+(online?' online':'');live.innerHTML='<i></i><span>'+(online?'在线 · '+formatAgo(seen):formatAgo(seen))+'</span>';
+  var last=active.lastAlert;document.getElementById('heroLastEvent').textContent=last?eventLabel(last.cls):'暂无事件';
+  renderDeviceStrip();
 }
 
-// ═══════════════ Tab 切换 ═══════════════
-function switchTab(name){
-  var btns=document.querySelectorAll('.tab-bar button'),panes=document.querySelectorAll('.tab-pane');
-  btns.forEach(function(b){b.classList.remove('active');});
-  panes.forEach(function(p){p.classList.remove('active');});
-  event.target.closest('button').classList.add('active');
-  document.getElementById('pane-'+name).classList.add('active');
-  if(name==='alerts')loadAlerts();if(name==='feeding')loadFeedings();if(name==='stats')loadStats();
+function sendCmdFor(id,cmd){
+  if(!id){showError('请先选择设备');return false;}if(typeof Android==='undefined'||!Android.mqttPublish){showError('控制桥接不可用');return false;}
+  var ok=Android.mqttPublish('aihear/cmd',JSON.stringify({cmd:cmd,device:id}));if(!ok)showError('MQTT 未连接，命令发送失败');return ok;
 }
-
-// ═══════════════ UI ═══════════════
-function updateUI(){
-  var btn=document.getElementById('btnToggle');
-  if(started){btn.textContent='停止监视';btn.style.background='#147d72';}
-  else{btn.textContent='开启监视';btn.style.background='#3267c8';}
-}
-function refresh(){updateUI();loadStats();renderMonitorList();}
-function esc(s){var d=document.createElement('div');d.textContent=(s||'');return d.innerHTML;}
-
-var envHistory={}; // per-device ring buffer: {deviceId -> [{t,h,ts},...]}
-var lastEnvSampleKey={};
-
-// ═══════════════ 远程控制 ═══════════════
-function sendCmd(cmd){
-  if(!deviceId){showError('请先绑定设备');return false;}
-  if(typeof Android==='undefined'){showError('控制桥接不可用');return false;}
-  var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'","device":"'+deviceId+'"}');
-  if(!ok)showError('MQTT 未连接，命令发送失败');
-  return ok;
-}
-function sendCmdAll(cmd){
-  if(typeof Android==='undefined'){showError('控制桥接不可用');return false;}
-  if(!devices||!devices.length){showError('没有已绑定设备');return false;}
-  var allOk=true;
-  devices.forEach(function(id){
-    var ok=Android.mqttPublish('aihear/cmd','{"cmd":"'+cmd+'","device":"'+id+'"}');
-    if(!ok)allOk=false;
-  });
-  if(!allOk)showError('部分设备命令发送失败');
-  return allOk;
-}
-
-var controlStates={};
+function sendCmd(cmd){return sendCmdFor(deviceId,cmd);}
+function toggleDeviceArm(id){var state=controlStates[id];if(!state){showError('正在等待设备状态');return;}sendCmdFor(id,state.armed?'disarm':'arm');}
+function sendCmdAll(cmd){if(!devices.length){showError('没有已绑定设备');return false;}var ok=true;devices.forEach(function(id){if(!sendCmdFor(id,cmd))ok=false;});if(ok)showError(cmd==='arm'?'已发送全部开启':'已发送全部暂停');return ok;}
 function currentControlState(){return controlStates[deviceId]||null;}
-
-function toggleArm(){
-  
-  var s=currentControlState();
-  if(!s){showError('正在等待设备状态');return;}
-  if(sendCmd(s.armed?'disarm':'arm')){
-    var b=document.getElementById('btnArm');b.disabled=true;b.textContent='执行中';
-    setTimeout(function(){if(b.disabled)updateArmBtn();},800);
-  }
+function toggleArm(){var state=currentControlState();if(!state){showError('正在等待设备状态');return;}if(sendCmd(state.armed?'disarm':'arm')){document.getElementById('btnArm').disabled=true;}}
+function toggleMusic(){var state=currentControlState();if(!state){showError('正在等待设备状态');return;}if(sendCmd(state.music?'stop_music':'play_music')){document.getElementById('btnMusic').disabled=true;}}
+function updateControlUi(){
+  var state=currentControlState(),arm=document.getElementById('btnArm'),music=document.getElementById('btnMusic');
+  if(!state){arm.disabled=true;arm.textContent='等待';music.disabled=true;music.textContent='等待';document.getElementById('listenTitle').textContent='状态同步中';document.getElementById('heroListenState').textContent='等待同步';return;}
+  arm.disabled=false;music.disabled=false;
+  if(state.armed){arm.textContent='暂停';arm.className='switch-btn';document.getElementById('listenTitle').textContent='监听中';document.getElementById('heroListenState').textContent='监听中';}
+  else{arm.textContent='开启';arm.className='switch-btn paused';document.getElementById('listenTitle').textContent='已暂停';document.getElementById('heroListenState').textContent='已暂停';}
+  if(state.music){music.textContent=overlayActive?'停止告警音':'停止提示音';music.className='text-btn danger';document.getElementById('musicHint').textContent='提示音正在播放';}
+  else{music.textContent='测试提示音';music.className='text-btn';document.getElementById('musicHint').textContent='用于演示与提前终止告警音';}
 }
-function updateArmBtn(){
-  var b=document.getElementById('btnArm'),s=currentControlState();
-  if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
-  b.disabled=false;
-  if(s.armed){b.textContent='撤防';b.style.background='#fceaea';b.style.borderColor='#efc5c5';b.style.color='#b54141';}
-  else{b.textContent='布防';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
-}
-
-function toggleMusic(){
-  
-  var s=currentControlState();
-  if(!s){showError('正在等待设备状态');return;}
-  if(sendCmd(s.music?'stop_music':'play_music')){
-    var b=document.getElementById('btnMusic');b.disabled=true;b.textContent='执行中';
-    setTimeout(function(){if(b.disabled)updateMusicBtn();},1500);
-  }
-}
-function updateMusicBtn(){
-  var b=document.getElementById('btnMusic'),s=currentControlState();
-  if(!s){b.textContent='状态同步中';b.style.background='#f1f3f2';b.style.borderColor='#dfe5e2';b.style.color='#6f7c79';b.disabled=true;return;}
-  b.disabled=false;
-  if(s.music){b.textContent='播放中';b.style.background='#e5f3f0';b.style.borderColor='#b8ddd5';b.style.color='#116b62';}
-  else{b.textContent='播放音乐';b.style.background='#eaf0fb';b.style.borderColor='#c7d5f1';b.style.color='#2859ad';}
-}
-
 function pollControlState(){
-  if(typeof Android==='undefined'||!deviceId)return;
-  var d={};
-  try{d=JSON.parse(Android.getControlState(deviceId)||'{}');}catch(e){return;}
-  if(typeof d.armed!=='boolean'||typeof d.music!=='boolean')return;
-  var id=normalizeDeviceId(d.deviceId||deviceId);
-  if(id!==deviceId)return;
-  controlStates[id]={armed:d.armed,music:d.music,uptimeMs:d.uptimeMs||0};
-  localStorage.setItem('arm_state_'+id,d.armed?'1':'0');
-  updateArmBtn();updateMusicBtn();
+  if(!deviceId||typeof Android==='undefined'||!Android.getControlState)return;
+  devices.forEach(function(requestedId){var data=parseJson(Android.getControlState(requestedId),'{}');if(typeof data.armed!=='boolean'||typeof data.music!=='boolean')return;var id=normalizeDeviceId(data.deviceId||requestedId);if(id!==requestedId)return;controlStates[id]={armed:data.armed,music:data.music,uptimeMs:data.uptimeMs||0};});
+  updateControlUi();renderDeviceStrip();
 }
 
+function readOptional(data,names){for(var i=0;i<names.length;i++){var value=data[names[i]];if(value!==null&&value!==undefined&&value!==''&&isFinite(Number(value)))return Number(value);}return null;}
+function envState(data,key,value){
+  var raw=(data[key+'State']||data[key+'Status']||'').toString().toLowerCase();
+  if(raw.indexOf('alarm')>=0||raw.indexOf('high')>=0||raw.indexOf('low')>=0)return{css:'alarm',text:'异常'};
+  if(raw.indexOf('confirm')>=0||raw.indexOf('pending')>=0)return{css:'pending',text:'确认中'};
+  if(key==='gas'&&(data.mqWarmup===true||data.mqWarmup==='true'||data.mqReady===false))return{css:'pending',text:'预热中'};
+  if(value==null)return{css:'disabled',text:'无数据'};return{css:'',text:'正常'};
+}
+function setEnvCell(id,value,decimals,unit,state){var cell=document.getElementById(id);cell.className='env-cell '+id.replace('env','').toLowerCase()+' '+state.css;cell.querySelector('.value').textContent=value==null?'--':Number(value).toFixed(decimals);cell.querySelector('.env-unit').textContent=unit;cell.querySelector('.env-status').textContent=state.text;}
+function renderEnv(data){
+  var temp=readOptional(data,['temp','temperature']),humi=readOptional(data,['humi','humidity']);
+  var pm=readOptional(data,['pmIndex','particleIndex','pm25','pm']),gas=readOptional(data,['gasIndex','mq135Index','mq135','gas']);
+  var pmUnit=(data.pm25!=null||data.pmUnit==='ugm3')?'μg/m³':'指数',gasUnit=data.gasUnit||'指数';
+  setEnvCell('envTemp',temp,1,'°C',envState(data,'temp',temp));setEnvCell('envHumi',humi,0,'%RH',envState(data,'humi',humi));
+  setEnvCell('envPm',pm,0,pmUnit,envState(data,'pm',pm));setEnvCell('envGas',gas,0,gasUnit,envState(data,'gas',gas));
+  document.getElementById('envUpdated').textContent=(temp!=null||humi!=null||pm!=null||gas!=null)?'刚刚更新':'等待设备数据';
+}
 function pollEnv(){
-  if(typeof Android==='undefined'||!deviceId)return;
-  try{var d=JSON.parse(Android.getEnvData(deviceId)||'{}');}
-  catch(e){var d={};}
-  if(d.temp!=null&&d.humi!=null){
-    document.getElementById('envDisplay').textContent='🌡️ '+d.temp.toFixed(1)+'°C  💧 '+Math.round(d.humi)+'% RH';
-    var sampleKey=(d.deviceId||deviceId)+'|'+(d.uptimeMs==null?JSON.stringify(d):d.uptimeMs);
-    if(sampleKey===(lastEnvSampleKey[deviceId]||''))return;
-    lastEnvSampleKey[deviceId]=sampleKey;
-    // per-device ring buffer (keep last 24h @ 5s = 17280 samples)
-    var buf=envHistory[deviceId]||[];
-    var now=Date.now();buf.push({t:d.temp,h:d.humi,ts:now});
-    var cutoff=now-86400000;
-    while(buf.length&&buf[0].ts<cutoff)buf.shift();
-    if(buf.length>20000)buf.splice(0,buf.length-17280);
-    envHistory[deviceId]=buf;
-  }else{
-    document.getElementById('envDisplay').textContent='--°C · --% RH';
-  }
-}
-function getEnvAvg(){
-  var buf=envHistory[deviceId||'']||[];
-  if(!buf.length)return null;
-  var st=0,sh=0,n=buf.length;
-  for(var i=0;i<n;i++){st+=buf[i].t;sh+=buf[i].h;}
-  return {temp:(st/n),humi:(sh/n)};
+  if(!deviceId){renderEnv({});return;}var data={};
+  if(typeof Android!=='undefined'&&Android.getEnvData)data=parseJson(Android.getEnvData(deviceId),'{}');
+  envCache[deviceId]=data;renderEnv(data);
 }
 
-// ═══════════════ 轮询 ═══════════════
-setInterval(function(){pollMqtt();pollEnv();if(started)loadStats();
-  if(document.getElementById('pane-alerts').classList.contains('active'))loadAlerts();
-  updateArmBtn();updateMusicBtn();
-},2000);
-setInterval(pollControlState,500);
+function eventLabel(cls){
+  var map={baby_cry:'婴儿哭声',temp_high:'温度过高',temp_low:'温度过低',humi_high:'湿度过高',humi_low:'湿度过低',pm_high:'颗粒物偏高',particle_high:'颗粒物偏高',mq135_high:'气态污染偏高',gas_high:'气态污染偏高'};
+  var clean=(cls||'').replace(/_(recovered|recovery|clear|normal)$/i,'');return map[clean]||clean||'设备事件';
+}
+function eventCode(cls){if(isCry(cls))return'哭';if(/^temp_/i.test(cls))return'温';if(/^humi_/i.test(cls))return'湿';if(/^(pm|particle)_/i.test(cls))return'尘';if(/^(mq|gas|air)_/i.test(cls))return'气';return'事';}
+function onNewAlert(alertDeviceId,cls,score){
+  if(arguments.length===2){score=cls;cls=alertDeviceId;alertDeviceId=deviceId;}
+  if(isEnvEvent(cls)){loadAlerts();return;}if(!isCry(cls)||overlayActive)return;
+  var room=devices.indexOf(alertDeviceId)>=0?deviceAlias(alertDeviceId):alertDeviceId;
+  overlayActive=true;document.getElementById('overlaySub').textContent=(room?room+' · ':'')+'模型置信度 '+Math.round((score||0)*100)+'%';document.getElementById('alertOverlay').classList.add('show');updateControlUi();loadAlerts();
+}
+function dismissAlert(){overlayActive=false;document.getElementById('alertOverlay').classList.remove('show');if(typeof Android!=='undefined'&&Android.stopAlarm)Android.stopAlarm();if(currentControlState()&&currentControlState().music)sendCmd('stop_music');if(navigator.vibrate)navigator.vibrate(0);updateControlUi();}
+function loadAlerts(){
+  var list=document.getElementById('alertList'),data=[];
+  if(typeof Android!=='undefined'&&deviceId&&Android.getAlertsForDevice)data=parseJson(Android.getAlertsForDevice(deviceId),'[]');
+  if(!Array.isArray(data)||!data.length){list.innerHTML='<div class="empty-state"><b>当前无事件</b>设备确认异常后会记录在这里</div>';updateAnalysisSummary();return;}
+  var html='';data.slice(0,12).forEach(function(item){var cls=item.cls||'',cry=isCry(cls),env=isEnvEvent(cls),recovered=!!item.recoveredAt||isRecovery(cls),duration=recovered&&item.durationMs!=null?' · 持续 '+formatDuration(item.durationMs):'';html+='<div class="event-item '+(cry?'cry':env?'env':'')+'"><div class="event-mark">'+eventCode(cls)+'</div><div class="event-main"><div class="event-title">'+esc(eventLabel(cls))+'</div><div class="event-meta">'+new Date(item.time).toLocaleString('zh-CN')+(cry?' · 置信度 '+Math.round((item.score||0)*100)+'%':'')+duration+'</div></div><span class="event-state '+(recovered?'recovered':'')+'">'+(recovered?'已恢复':'已确认')+'</span></div>';});
+  list.innerHTML=html;updateAnalysisSummary(data);
+}
+function clearAlerts(){if(!deviceId)return;if(!confirm('清空 '+deviceAlias(deviceId)+' 的事件记录？'))return;if(typeof Android!=='undefined'&&Android.clearAlertsForDevice)Android.clearAlertsForDevice(deviceId);loadAlerts();}
 
-// ═══════════════ 初始化 ═══════════════
+function requestSnapshot(){if(sendCmd('capture')){document.getElementById('snapshotEmptyText').textContent='正在请求抓拍';showError('抓拍请求已发送');}}
+function pollSnapshot(){
+  if(!deviceId||typeof Android==='undefined'||!Android.getSnapshotData)return;var data=parseJson(Android.getSnapshotData(deviceId),'{}');if(!data||!data.image)return;
+  var card=document.getElementById('snapshotCard'),img=document.getElementById('snapshotImage');if(img.src!==data.image)img.src=data.image;card.classList.add('has-image');document.getElementById('snapshotTime').textContent=formatTime(data.time||Date.now());document.getElementById('snapshotCaption').textContent=data.eventId?'事件 '+data.eventId:'婴儿房抓拍';
+}
+
+function selectFeedType(button){feedType=button.getAttribute('data-type');document.querySelectorAll('#feedType button').forEach(function(item){item.classList.toggle('active',item===button);});var milk=feedType==='breast';document.getElementById('feedUnit').textContent=milk?'分钟':'毫升';document.getElementById('feedAmount').value=milk?'15':'120';}
+function stepFeed(direction){var input=document.getElementById('feedAmount'),step=feedType==='breast'?5:10,value=Number(input.value)||step;input.value=Math.max(step,Math.min(999,value+direction*step));}
+function addFeeding(){
+  if(!deviceId){showError('请先选择设备');return;}var amount=Number(document.getElementById('feedAmount').value),unit=feedType==='breast'?'min':'ml',note=document.getElementById('feedNote').value.trim();
+  if(!isFinite(amount)||amount<=0){showError('请输入有效的喂养量');return;}
+  if(typeof Android!=='undefined'){if(Android.addFeedingDetail)Android.addFeedingDetail(deviceId,feedType,amount,unit,note);else if(Android.addFeeding)Android.addFeeding(deviceId,feedName(feedType)+' · '+amount+(unit==='min'?'分钟':'毫升')+(note?' · '+note:''));}
+  document.getElementById('feedNote').value='';showError('喂养记录已保存');loadFeedings();loadStats();
+}
+function feedName(type){return type==='formula'?'配方奶':type==='food'?'辅食':'母乳';}
+function loadFeedings(){
+  var list=document.getElementById('feedList'),data=[];if(typeof Android!=='undefined'&&deviceId&&Android.getFeedingsForDevice)data=parseJson(Android.getFeedingsForDevice(deviceId),'[]');if(!Array.isArray(data))data=[];
+  var today=new Date();today.setHours(0,0,0,0);var todayCount=0,milkTotal=0;
+  data.forEach(function(item){if(item.time>=today.getTime()){todayCount++;if((item.type==='formula'||item.type==='food')&&item.unit==='ml')milkTotal+=Number(item.amount)||0;}});
+  document.getElementById('feedTodayCount').textContent=todayCount;document.getElementById('feedTodayAmount').textContent=milkTotal?milkTotal+'ml':'--';document.getElementById('feedLastTime').textContent=data.length?formatTime(data[0].time):'--';document.getElementById('feedTodayDate').textContent=new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric'});
+  if(!data.length){list.innerHTML='<div class="empty-state"><b>暂无喂养记录</b>记录后将用于趋势与护理分析</div>';updateAnalysisSummary();return;}
+  var html='';data.slice(0,30).forEach(function(item){var type=item.type||'',name=type?feedName(type):'喂养记录',amount=item.amount!=null?item.amount+(item.unit==='min'?' 分钟':' ml'):'',note=item.note||'';html+='<div class="feed-item"><div class="feed-mark">'+(type==='formula'?'奶':type==='food'?'辅':'乳')+'</div><div class="feed-main"><div class="feed-title">'+esc(name)+(amount?' · '+esc(amount):'')+'</div><div class="feed-meta">'+new Date(item.time).toLocaleString('zh-CN')+(note?' · '+esc(note):'')+'</div></div><button class="delete-btn" onclick="delFeeding('+item.id+')" aria-label="删除记录">×</button></div>';});list.innerHTML=html;updateAnalysisSummary(null,data);
+}
+function delFeeding(id){if(typeof Android!=='undefined'&&Android.deleteFeeding)Android.deleteFeeding(id);loadFeedings();loadStats();}
+
+function chartBase(){return{responsive:true,maintainAspectRatio:false,animation:{duration:250},interaction:{intersect:false,mode:'index'},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:7,boxHeight:7,padding:14,font:{size:10},color:'#5f6d68'}}},scales:{x:{ticks:{font:{size:9},color:'#81908a',maxTicksLimit:7},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:9},color:'#81908a'},grid:{color:'#edf1ef'}}}};}
+function loadStats(){
+  if(!deviceId||typeof Android==='undefined'||typeof Chart==='undefined')return;
+  var daily=Android.getDailyCryAndFeeding?parseJson(Android.getDailyCryAndFeeding(deviceId,7),'[]'):[],env=Android.getEnvHourly?parseJson(Android.getEnvHourly(deviceId,24),'[]'):[];
+  var labels=[],cry=[],feed=[];daily.forEach(function(item){labels.push(new Date(item.dayTs).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'}));cry.push(item.cryCount||0);feed.push(item.feedCount||0);});
+  var opt1=chartBase();opt1.scales.y.ticks.stepSize=1;
+  if(!chartCry)chartCry=new Chart(document.getElementById('chartCryFeeding'),{type:'line',data:{labels:labels,datasets:[{label:'哭声',data:cry,borderColor:'#c94747',backgroundColor:'rgba(201,71,71,.08)',fill:true,tension:.35,borderWidth:2,pointRadius:2},{label:'喂养',data:feed,borderColor:'#137568',backgroundColor:'rgba(19,117,104,.07)',fill:true,tension:.35,borderWidth:2,pointRadius:2}]},options:opt1});
+  else{chartCry.data.labels=labels;chartCry.data.datasets[0].data=cry;chartCry.data.datasets[1].data=feed;chartCry.update();}
+  var envLabels=[],temp=[],humi=[],pm=[],gas=[],tempSum=0,tempCount=0;
+  env.forEach(function(item){envLabels.push(new Date(item.hourTs).getHours()+':00');temp.push(item.tempAvg==null?null:+item.tempAvg);humi.push(item.humiAvg==null?null:+item.humiAvg);pm.push(item.pmAvg==null?null:+item.pmAvg);gas.push(item.gasAvg==null?null:+item.gasAvg);if(item.tempAvg!=null){tempSum+=+item.tempAvg;tempCount++;}});
+  var opt2=chartBase();opt2.scales.y1={position:'right',min:0,max:100,ticks:{font:{size:9},color:'#356da8'},grid:{display:false}};
+  if(!chartEnv)chartEnv=new Chart(document.getElementById('chartEnv'),{type:'line',data:{labels:envLabels,datasets:[{label:'温度 °C',data:temp,borderColor:'#b7573d',tension:.3,borderWidth:2,pointRadius:1,yAxisID:'y'},{label:'湿度 %RH',data:humi,borderColor:'#356da8',tension:.3,borderWidth:2,pointRadius:1,yAxisID:'y1'}]},options:opt2});
+  else{chartEnv.data.labels=envLabels;chartEnv.data.datasets[0].data=temp;chartEnv.data.datasets[1].data=humi;chartEnv.update();}
+  var opt3=chartBase();
+  if(!chartAir)chartAir=new Chart(document.getElementById('chartAir'),{type:'line',data:{labels:envLabels,datasets:[{label:'颗粒物',data:pm,borderColor:'#9b6a17',tension:.3,borderWidth:2,pointRadius:1},{label:'MQ-135',data:gas,borderColor:'#637546',tension:.3,borderWidth:2,pointRadius:1}]},options:opt3});
+  else{chartAir.data.labels=envLabels;chartAir.data.datasets[0].data=pm;chartAir.data.datasets[1].data=gas;chartAir.update();}
+  document.getElementById('statCry').textContent=cry.length?cry[cry.length-1]:0;document.getElementById('statFeed').textContent=feed.length?feed[feed.length-1]:0;document.getElementById('statTemp').textContent=tempCount?(tempSum/tempCount).toFixed(1)+'°':'--';
+  var current=envCache[deviceId]||{},air=readOptional(current,['airIndex','pmIndex','gasIndex']);document.getElementById('statAir').textContent=air==null?'--':Math.round(air);
+}
+
+function updateAnalysisSummary(alertData,feedData){
+  if(typeof Android!=='undefined'&&deviceId){if(!alertData&&Android.getAlertsForDevice)alertData=parseJson(Android.getAlertsForDevice(deviceId),'[]');if(!feedData&&Android.getFeedingsForDevice)feedData=parseJson(Android.getFeedingsForDevice(deviceId),'[]');}
+  alertData=Array.isArray(alertData)?alertData:[];feedData=Array.isArray(feedData)?feedData:[];var today=new Date();today.setHours(0,0,0,0);var cry=0,env=0,feed=0;
+  alertData.forEach(function(item){if(item.time>=today.getTime()&&!isRecovery(item.cls)){if(isCry(item.cls))cry++;else if(isEnvEvent(item.cls))env++;}});feedData.forEach(function(item){if(item.time>=today.getTime())feed++;});
+  document.getElementById('aiCryCount').textContent=cry;document.getElementById('aiEnvCount').textContent=env;document.getElementById('aiFeedCount').textContent=feed;
+}
+function saveApiKey(){var key=document.getElementById('apiKey').value.trim();if(key){localStorage.setItem('ds_api_key',key);showError('API Key 已保存');}else{localStorage.removeItem('ds_api_key');showError('API Key 已清除');}}
+function runAiAnalysis(){
+  var key=localStorage.getItem('ds_api_key')||'';if(!key){openSettings();showError('请先在设置中填写 DeepSeek API Key');return;}
+  var button=document.getElementById('btnAi'),result=document.getElementById('aiResult');button.disabled=true;button.textContent='正在分析';result.classList.remove('empty');result.textContent='正在整理当前设备数据...';
+  var alerts=typeof Android!=='undefined'&&Android.getAlertsForDevice?parseJson(Android.getAlertsForDevice(deviceId),'[]'):[],feeds=typeof Android!=='undefined'&&Android.getFeedingsForDevice?parseJson(Android.getFeedingsForDevice(deviceId),'[]'):[],env=typeof Android!=='undefined'&&Android.getEnvHourly?parseJson(Android.getEnvHourly(deviceId,24),'[]'):[];
+  var prompt='你是婴儿护理助手。请根据以下设备数据给出不超过300字、谨慎且可执行的护理建议，不作医疗诊断。设备：'+deviceAlias(deviceId)+'。哭声与环境事件：'+JSON.stringify(alerts.slice(0,30))+'。喂养记录：'+JSON.stringify(feeds.slice(0,30))+'。24小时环境聚合：'+JSON.stringify(env)+'。';
+  fetch('https://api.deepseek.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'deepseek-chat',messages:[{role:'user',content:prompt}],max_tokens:500,temperature:.5})})
+    .then(function(response){if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(function(data){result.textContent=data.choices&&data.choices[0]?data.choices[0].message.content:'未获得分析结果';})
+    .catch(function(error){result.textContent='分析失败：'+error.message;}).finally(function(){button.disabled=false;button.textContent='重新生成分析';});
+}
+
+function switchTab(name,button){
+  document.querySelectorAll('.tab-pane').forEach(function(pane){pane.classList.remove('active');});document.querySelectorAll('.tab-bar button').forEach(function(item){item.classList.remove('active');});
+  document.getElementById('pane-'+name).classList.add('active');button.classList.add('active');document.getElementById('contentArea').scrollTop=0;
+  if(name==='monitor'){loadAlerts();pollEnv();pollSnapshot();}else if(name==='feeding')loadFeedings();else if(name==='trends')setTimeout(loadStats,0);else if(name==='analysis')updateAnalysisSummary();
+}
+
+setInterval(function(){pollMqtt();pollEnv();pollSnapshot();if(document.getElementById('pane-monitor').classList.contains('active'))loadAlerts();},2000);
+setInterval(pollControlState,600);
 (function init(){
-  initBind();
-  var sk=localStorage.getItem('ds_api_key')||document.getElementById('apiKey').value;
-  document.getElementById('apiKey').value=sk;
-  if(!localStorage.getItem('ds_api_key'))localStorage.setItem('ds_api_key',sk);
-  updateUI();updateArmBtn();updateMusicBtn();pollMqtt();pollControlState();loadStats();renderMonitorList();
+  started=localStorage.getItem('started')==='1';initBind();document.getElementById('apiKey').value=localStorage.getItem('ds_api_key')||'';updateServiceUi();updateControlUi();pollMqtt();pollControlState();pollEnv();loadAlerts();loadFeedings();loadStats();updateAnalysisSummary();
 })();
 </script>
 </body>

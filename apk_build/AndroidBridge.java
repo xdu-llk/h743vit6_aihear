@@ -221,6 +221,27 @@ public class AndroidBridge {
     }
 
     @JavascriptInterface
+    public void addFeedingDetail(String deviceId, String type, double amount,
+                                 String unit, String note) {
+        try {
+            Activity a = getActivity();
+            String id = DeviceRegistry.normalize(deviceId);
+            String safeType = type == null ? "" : type.trim().toLowerCase();
+            String safeUnit = unit == null ? "" : unit.trim().toLowerCase();
+            if (a == null || id.isEmpty() || amount <= 0 || amount > 999) return;
+            if (!("breast".equals(safeType) || "formula".equals(safeType) ||
+                  "food".equals(safeType))) return;
+            if (!("min".equals(safeUnit) || "ml".equals(safeUnit))) return;
+            AlertDbHelper db = new AlertDbHelper(a);
+            db.insertFeeding(System.currentTimeMillis(), id, safeType, amount,
+                safeUnit, note == null ? "" : note.trim());
+            db.close();
+        } catch (Exception e) {
+            Log.e("AIBridge", "addFeedingDetail error: " + e.getMessage());
+        }
+    }
+
+    @JavascriptInterface
     public void deleteFeeding(long id) {
         try {
             Activity a = getActivity();

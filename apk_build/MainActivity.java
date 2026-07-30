@@ -48,9 +48,10 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         bridge  = new AndroidBridge(this, webView);
-        alertListener = (cls, score) -> runOnUiThread(() -> {
+        alertListener = (deviceId, cls, score) -> runOnUiThread(() -> {
             if (webView == null) return;
             String js = "if(typeof onNewAlert==='function')onNewAlert(" +
+                org.json.JSONObject.quote(deviceId) + "," +
                 org.json.JSONObject.quote(cls) + "," + Double.toString(score) + ");";
             webView.evaluateJavascript(js, null);
         });

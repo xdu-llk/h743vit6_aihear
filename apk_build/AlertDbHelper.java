@@ -9,12 +9,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * SQLite 持久化告警记录 + 喂养记录（v3: 喂养表增加 device_id）
+ * SQLite 持久化告警、结构化喂养记录和环境小时聚合。
  */
 public class AlertDbHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME    = "aihear.db";
-    private static final int    DB_VERSION = 4;
+    private static final int    DB_VERSION = 6;
 
     // ── 告警表 ──
     private static final String TABLE_ALERT = "alerts";
@@ -25,6 +25,8 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     private static final String COL_TOPIC   = "topic";
     private static final String COL_DEVICE  = "device_id";
     private static final String COL_EVENT   = "event_id";
+    private static final String COL_RECOVERED_TS = "recovered_ts";
+    private static final String COL_DURATION_MS  = "duration_ms";
 
     // ── 喂养表 ──
     private static final String TABLE_FEED = "feeding";
@@ -32,6 +34,9 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     private static final String COL_FEED_TS     = "timestamp";
     private static final String COL_FEED_NOTE   = "note";
     private static final String COL_FEED_DEVICE = "device_id";
+    private static final String COL_FEED_TYPE   = "feed_type";
+    private static final String COL_FEED_AMOUNT = "amount";
+    private static final String COL_FEED_UNIT   = "unit";
 
     // ── 环境数据聚合表 ──
     private static final String TABLE_ENV_HOURLY  = "env_hourly";
@@ -44,6 +49,14 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     private static final String COL_ENV_HUMI_MAX  = "humi_max";
     private static final String COL_ENV_HUMI_MIN  = "humi_min";
     private static final String COL_ENV_SAMPLES   = "sample_cnt";
+    private static final String COL_ENV_PM_AVG    = "pm_avg";
+    private static final String COL_ENV_PM_MAX    = "pm_max";
+    private static final String COL_ENV_PM_MIN    = "pm_min";
+    private static final String COL_ENV_GAS_AVG   = "gas_avg";
+    private static final String COL_ENV_GAS_MAX   = "gas_max";
+    private static final String COL_ENV_GAS_MIN   = "gas_min";
+    private static final String COL_ENV_PM_SAMPLES  = "pm_sample_cnt";
+    private static final String COL_ENV_GAS_SAMPLES = "gas_sample_cnt";
 
     public AlertDbHelper(Context ctx) {
         super(ctx, DB_NAME, null, DB_VERSION);
@@ -58,12 +71,17 @@ public class AlertDbHelper extends SQLiteOpenHelper {
             COL_SCORE + " REAL, " +
             COL_TOPIC + " TEXT, " +
             COL_DEVICE + " TEXT NOT NULL DEFAULT 'legacy', " +
-            COL_EVENT + " TEXT)");
+            COL_EVENT + " TEXT, " +
+            COL_RECOVERED_TS + " INTEGER, " +
+            COL_DURATION_MS + " INTEGER)");
 
         db.execSQL("CREATE TABLE " + TABLE_FEED + " (" +
             COL_FEED_ID     + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
             COL_FEED_TS     + " INTEGER NOT NULL, " +
             COL_FEED_NOTE   + " TEXT, " +
+            COL_FEED_TYPE   + " TEXT, " +
+            COL_FEED_AMOUNT + " REAL, " +
+            COL_FEED_UNIT   + " TEXT, " +
             COL_FEED_DEVICE + " TEXT NOT NULL DEFAULT 'legacy')");
 
         db.execSQL("CREATE INDEX idx_alert_ts ON " + TABLE_ALERT + "(" + COL_TS + " DESC)");
@@ -84,7 +102,15 @@ public class AlertDbHelper extends SQLiteOpenHelper {
             COL_ENV_HUMI_AVG + " REAL, " +
             COL_ENV_HUMI_MAX + " REAL, " +
             COL_ENV_HUMI_MIN + " REAL, " +
+            COL_ENV_PM_AVG    + " REAL, " +
+            COL_ENV_PM_MAX    + " REAL, " +
+            COL_ENV_PM_MIN    + " REAL, " +
+            COL_ENV_GAS_AVG   + " REAL, " +
+            COL_ENV_GAS_MAX   + " REAL, " +
+            COL_ENV_GAS_MIN   + " REAL, " +
             COL_ENV_SAMPLES  + " INTEGER DEFAULT 0, " +
+            COL_ENV_PM_SAMPLES  + " INTEGER DEFAULT 0, " +
+            COL_ENV_GAS_SAMPLES + " INTEGER DEFAULT 0, " +
             "PRIMARY KEY (" + COL_ENV_DEVICE + "," + COL_ENV_HOUR_TS + "))");
 
         db.execSQL("CREATE INDEX idx_env_hourly_ts ON " + TABLE_ENV_HOURLY +
@@ -124,6 +150,23 @@ public class AlertDbHelper extends SQLiteOpenHelper {
             db.execSQL("CREATE INDEX idx_env_hourly_ts ON " + TABLE_ENV_HOURLY +
                 "(" + COL_ENV_HOUR_TS + " DESC)");
         }
+        if (oldV < 5) {
+            db.execSQL("ALTER TABLE " + TABLE_FEED + " ADD COLUMN " + COL_FEED_TYPE + " TEXT");
+            db.execSQL("ALTER TABLE " + TABLE_FEED + " ADD COLUMN " + COL_FEED_AMOUNT + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_FEED + " ADD COLUMN " + COL_FEED_UNIT + " TEXT");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_PM_AVG + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_PM_MAX + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_PM_MIN + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_GAS_AVG + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_GAS_MAX + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_GAS_MIN + " REAL");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_PM_SAMPLES + " INTEGER DEFAULT 0");
+            db.execSQL("ALTER TABLE " + TABLE_ENV_HOURLY + " ADD COLUMN " + COL_ENV_GAS_SAMPLES + " INTEGER DEFAULT 0");
+        }
+        if (oldV < 6) {
+            db.execSQL("ALTER TABLE " + TABLE_ALERT + " ADD COLUMN " + COL_RECOVERED_TS + " INTEGER");
+            db.execSQL("ALTER TABLE " + TABLE_ALERT + " ADD COLUMN " + COL_DURATION_MS + " INTEGER");
+        }
     }
 
     // ── 告警 CRUD ──
@@ -161,6 +204,12 @@ public class AlertDbHelper extends SQLiteOpenHelper {
                 o.put("eventId", c.getString(c.getColumnIndexOrThrow(COL_EVENT)));
                 o.put("cls",   c.getString(c.getColumnIndexOrThrow(COL_CLASS)));
                 o.put("score", c.getDouble(c.getColumnIndexOrThrow(COL_SCORE)));
+                int recoveredIndex = c.getColumnIndex(COL_RECOVERED_TS);
+                int durationIndex = c.getColumnIndex(COL_DURATION_MS);
+                if (recoveredIndex >= 0 && !c.isNull(recoveredIndex))
+                    o.put("recoveredAt", c.getLong(recoveredIndex));
+                if (durationIndex >= 0 && !c.isNull(durationIndex))
+                    o.put("durationMs", c.getLong(durationIndex));
             } catch (Exception ignored) {}
             arr.put(o);
         }
@@ -170,6 +219,41 @@ public class AlertDbHelper extends SQLiteOpenHelper {
 
     public boolean deleteAlert(long id) {
         return getWritableDatabase().delete(TABLE_ALERT, COL_ID + "=?", new String[]{String.valueOf(id)}) > 0;
+    }
+
+    public boolean markAlertRecovered(long recoveredTs, String deviceId,
+                                      String eventId, String baseClass) {
+        SQLiteDatabase db = getWritableDatabase();
+        String selection = COL_DEVICE + "=? AND " + COL_RECOVERED_TS + " IS NULL";
+        java.util.ArrayList<String> args = new java.util.ArrayList<>();
+        args.add(deviceId);
+        if (eventId != null && !eventId.isEmpty()) {
+            selection += " AND " + COL_EVENT + "=?";
+            args.add(eventId);
+        } else {
+            selection += " AND " + COL_CLASS + "=?";
+            args.add(baseClass);
+        }
+        Cursor c = db.query(TABLE_ALERT, new String[]{COL_ID, COL_TS}, selection,
+            args.toArray(new String[0]), null, null, COL_TS + " DESC", "1");
+        if (!c.moveToFirst() && eventId != null && !eventId.isEmpty()) {
+            c.close();
+            c = db.query(TABLE_ALERT, new String[]{COL_ID, COL_TS},
+                COL_DEVICE + "=? AND " + COL_CLASS + "=? AND " + COL_RECOVERED_TS + " IS NULL",
+                new String[]{deviceId, baseClass}, null, null, COL_TS + " DESC", "1");
+        }
+        if (!c.moveToFirst()) {
+            c.close();
+            return false;
+        }
+        long id = c.getLong(c.getColumnIndexOrThrow(COL_ID));
+        long startedTs = c.getLong(c.getColumnIndexOrThrow(COL_TS));
+        c.close();
+        ContentValues cv = new ContentValues();
+        cv.put(COL_RECOVERED_TS, recoveredTs);
+        cv.put(COL_DURATION_MS, Math.max(0, recoveredTs - startedTs));
+        return db.update(TABLE_ALERT, cv, COL_ID + "=?",
+            new String[]{String.valueOf(id)}) > 0;
     }
 
     public void clearAlerts() {
@@ -190,10 +274,18 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     // ── 喂养 CRUD ──
 
     public long insertFeeding(long ts, String deviceId, String note) {
+        return insertFeeding(ts, deviceId, null, Double.NaN, null, note);
+    }
+
+    public long insertFeeding(long ts, String deviceId, String type,
+                              double amount, String unit, String note) {
         ContentValues cv = new ContentValues();
         cv.put(COL_FEED_TS, ts);
         cv.put(COL_FEED_DEVICE, deviceId == null || deviceId.isEmpty() ? "legacy" : deviceId);
         cv.put(COL_FEED_NOTE, note);
+        if (type != null && !type.isEmpty()) cv.put(COL_FEED_TYPE, type);
+        if (!Double.isNaN(amount)) cv.put(COL_FEED_AMOUNT, amount);
+        if (unit != null && !unit.isEmpty()) cv.put(COL_FEED_UNIT, unit);
         return getWritableDatabase().insert(TABLE_FEED, null, cv);
     }
 
@@ -215,6 +307,12 @@ public class AlertDbHelper extends SQLiteOpenHelper {
                 o.put("time",     c.getLong(c.getColumnIndexOrThrow(COL_FEED_TS)));
                 o.put("deviceId", c.getString(c.getColumnIndexOrThrow(COL_FEED_DEVICE)));
                 o.put("note",     c.getString(c.getColumnIndexOrThrow(COL_FEED_NOTE)));
+                int typeIndex = c.getColumnIndex(COL_FEED_TYPE);
+                int amountIndex = c.getColumnIndex(COL_FEED_AMOUNT);
+                int unitIndex = c.getColumnIndex(COL_FEED_UNIT);
+                if (typeIndex >= 0 && !c.isNull(typeIndex)) o.put("type", c.getString(typeIndex));
+                if (amountIndex >= 0 && !c.isNull(amountIndex)) o.put("amount", c.getDouble(amountIndex));
+                if (unitIndex >= 0 && !c.isNull(unitIndex)) o.put("unit", c.getString(unitIndex));
             } catch (Exception ignored) {}
             arr.put(o);
         }
@@ -277,17 +375,27 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     public void upsertEnvHourly(String deviceId, long hourTs,
                                  double tempAvg, double tempMax, double tempMin,
                                  double humiAvg, double humiMax, double humiMin,
-                                 int samples) {
+                                 int samples,
+                                 double pmAvg, double pmMax, double pmMin, int pmSamples,
+                                 double gasAvg, double gasMax, double gasMin, int gasSamples) {
         ContentValues cv = new ContentValues();
         cv.put(COL_ENV_DEVICE,   deviceId);
         cv.put(COL_ENV_HOUR_TS,  hourTs);
-        cv.put(COL_ENV_TEMP_AVG, tempAvg);
-        cv.put(COL_ENV_TEMP_MAX, tempMax);
-        cv.put(COL_ENV_TEMP_MIN, tempMin);
-        cv.put(COL_ENV_HUMI_AVG, humiAvg);
-        cv.put(COL_ENV_HUMI_MAX, humiMax);
-        cv.put(COL_ENV_HUMI_MIN, humiMin);
+        putOptional(cv, COL_ENV_TEMP_AVG, tempAvg);
+        putOptional(cv, COL_ENV_TEMP_MAX, tempMax);
+        putOptional(cv, COL_ENV_TEMP_MIN, tempMin);
+        putOptional(cv, COL_ENV_HUMI_AVG, humiAvg);
+        putOptional(cv, COL_ENV_HUMI_MAX, humiMax);
+        putOptional(cv, COL_ENV_HUMI_MIN, humiMin);
         cv.put(COL_ENV_SAMPLES,  samples);
+        putOptional(cv, COL_ENV_PM_AVG, pmAvg);
+        putOptional(cv, COL_ENV_PM_MAX, pmMax);
+        putOptional(cv, COL_ENV_PM_MIN, pmMin);
+        putOptional(cv, COL_ENV_GAS_AVG, gasAvg);
+        putOptional(cv, COL_ENV_GAS_MAX, gasMax);
+        putOptional(cv, COL_ENV_GAS_MIN, gasMin);
+        cv.put(COL_ENV_PM_SAMPLES, pmSamples);
+        cv.put(COL_ENV_GAS_SAMPLES, gasSamples);
         getWritableDatabase().insertWithOnConflict(
             TABLE_ENV_HOURLY, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
     }
@@ -304,13 +412,21 @@ public class AlertDbHelper extends SQLiteOpenHelper {
             JSONObject o = new JSONObject();
             try {
                 o.put("hourTs",    c.getLong(c.getColumnIndexOrThrow(COL_ENV_HOUR_TS)));
-                o.put("tempAvg",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_AVG)));
-                o.put("tempMax",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_MAX)));
-                o.put("tempMin",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_TEMP_MIN)));
-                o.put("humiAvg",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_AVG)));
-                o.put("humiMax",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_MAX)));
-                o.put("humiMin",   c.getDouble(c.getColumnIndexOrThrow(COL_ENV_HUMI_MIN)));
+                putCursorNumber(o, "tempAvg", c, COL_ENV_TEMP_AVG);
+                putCursorNumber(o, "tempMax", c, COL_ENV_TEMP_MAX);
+                putCursorNumber(o, "tempMin", c, COL_ENV_TEMP_MIN);
+                putCursorNumber(o, "humiAvg", c, COL_ENV_HUMI_AVG);
+                putCursorNumber(o, "humiMax", c, COL_ENV_HUMI_MAX);
+                putCursorNumber(o, "humiMin", c, COL_ENV_HUMI_MIN);
                 o.put("samples",   c.getInt(c.getColumnIndexOrThrow(COL_ENV_SAMPLES)));
+                putCursorNumber(o, "pmAvg", c, COL_ENV_PM_AVG);
+                putCursorNumber(o, "pmMax", c, COL_ENV_PM_MAX);
+                putCursorNumber(o, "pmMin", c, COL_ENV_PM_MIN);
+                putCursorNumber(o, "gasAvg", c, COL_ENV_GAS_AVG);
+                putCursorNumber(o, "gasMax", c, COL_ENV_GAS_MAX);
+                putCursorNumber(o, "gasMin", c, COL_ENV_GAS_MIN);
+                o.put("pmSamples", c.getInt(c.getColumnIndexOrThrow(COL_ENV_PM_SAMPLES)));
+                o.put("gasSamples", c.getInt(c.getColumnIndexOrThrow(COL_ENV_GAS_SAMPLES)));
             } catch (Exception ignored) {}
             arr.put(o);
         }
@@ -359,5 +475,18 @@ public class AlertDbHelper extends SQLiteOpenHelper {
         cal.set(java.util.Calendar.SECOND, 0);
         cal.set(java.util.Calendar.MILLISECOND, 0);
         return cal.getTimeInMillis();
+    }
+
+    private void putOptional(ContentValues cv, String column, double value) {
+        if (Double.isNaN(value)) cv.putNull(column);
+        else cv.put(column, value);
+    }
+
+    private void putCursorNumber(JSONObject target, String key, Cursor cursor, String column) {
+        try {
+            int index = cursor.getColumnIndex(column);
+            if (index >= 0 && !cursor.isNull(index)) target.put(key, cursor.getDouble(index));
+            else target.put(key, JSONObject.NULL);
+        } catch (Exception ignored) {}
     }
 }
