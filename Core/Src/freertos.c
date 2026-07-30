@@ -11,8 +11,6 @@
 #include "alarm.h"
 #include "buzzer.h"
 #include "wifi_iot.h"
-#include "oled.h"
-#include "button.h"
 #include "dht11.h"
 #include <stdio.h>
 #include <string.h>
@@ -26,6 +24,22 @@
 #define ENV_ALERT_COOLDOWN_MS 300000U
 
 TaskHandle_t hAudioTask = NULL;
+
+/* Stage 1 disables the old OLED and PC4 button. PB10 now drives RGB blue;
+   these hooks become the ST7789 renderer in the next milestone. */
+static void Ui_ShowStatus(const char *status, const char *detail, float dbfs)
+{
+  (void)status;
+  (void)detail;
+  (void)dbfs;
+}
+
+static void Ui_SetEnvironment(float temp_c, float humi_pct, uint8_t valid)
+{
+  (void)temp_c;
+  (void)humi_pct;
+  (void)valid;
+}
 
 static uint8_t PublishControlState(uint8_t armed)
 {
@@ -144,10 +158,6 @@ static void vAudioInferTask(void *pvParameters)
       WifiIoT_QueryStatus();
     }
 
-#if !RECORD_MODE
-    Button_Poll();
-#endif
-
     float dbfs = Audio_GetDBFS();
     uint32_t peak = Audio_GetPeak();
     const int32_t *window = NULL;
@@ -169,14 +179,14 @@ static void vAudioInferTask(void *pvParameters)
 #endif
 
     if (!armed) {
-      OLED_ShowStatus("DISARMED", NULL, dbfs);
+      Ui_ShowStatus("DISARMED", NULL, dbfs);
     } else if (xTaskGetTickCount() < alert_until || Buzzer_IsPlaying()) {
       /* cooldown or melody playing — skip inference to avoid feedback loop */
     } else if ((window = Audio_CaptureWindow()) == NULL) {
-      OLED_ShowStatus("LISTENING", NULL, dbfs);
+      Ui_ShowStatus("LISTENING", NULL, dbfs);
     } else if ((peak = WindowPeak(window)) < AUDIO_GATE_PEAK) {
       dbfs = WindowDBFS(window);
-      OLED_ShowStatus("ARMED", NULL, dbfs);
+      Ui_ShowStatus("ARMED", NULL, dbfs);
     } else {
       float prob_cry = 0.0f;
       static const char *names[] = {"baby_cry", "other"};
@@ -188,7 +198,7 @@ static void vAudioInferTask(void *pvParameters)
         /* Tier 1: high confidence → immediate alert */
         printf("\r\n[DETECT] %s p=%.0f%% pk=%lu (instant)\r\n",
                names[0], (double)(prob_cry * 100), peak);
-        OLED_ShowStatus("ALERT!", names[0], dbfs);
+        Ui_ShowStatus("ALERT!", names[0], dbfs);
         Alarm_SetState(ALARM_STATE_ALERT);
         alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
         Buzzer_PlayMelody();
@@ -196,7 +206,7 @@ static void vAudioInferTask(void *pvParameters)
           WifiIoT_Publish("aihear/alert", p); }
       } else if (prob_cry >= 0.75f) {
         /* Tier 2: collect two genuinely newer windows, 0.2 s apart. */
-        OLED_ShowStatus("VOTING..", NULL, dbfs);
+        Ui_ShowStatus("VOTING..", NULL, dbfs);
         float probs[3] = {prob_cry, 0.0f, 0.0f};
         int valid_count = 1;
         for (int r = 0; r < 2; r++) {
@@ -221,7 +231,7 @@ static void vAudioInferTask(void *pvParameters)
           if (detected) {
             printf("\r\n[DETECT] %s score=%.0f%% (temporal)\r\n",
                    names[0], (double)(decision_score*100));
-            OLED_ShowStatus("ALERT!", names[0], dbfs);
+            Ui_ShowStatus("ALERT!", names[0], dbfs);
             Alarm_SetState(ALARM_STATE_ALERT);
             alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
             Buzzer_PlayMelody();
@@ -237,7 +247,7 @@ static void vAudioInferTask(void *pvParameters)
         static int cnt = 0;
         if (++cnt % 10 == 1)
           printf("\r\n[NORMAL] pk=%lu\r\n", peak);
-        OLED_ShowStatus("NORMAL", NULL, dbfs);
+        Ui_ShowStatus("NORMAL", NULL, dbfs);
       }
     }
 
@@ -262,7 +272,7 @@ static void vAudioInferTask(void *pvParameters)
           armed = 0;
           Buzzer_StopMelody();
           Alarm_SetState(ALARM_STATE_IDLE);
-          OLED_ShowStatus("DISARMED", NULL, 0);
+          Ui_ShowStatus("DISARMED", NULL, 0);
         }
         control_state_dirty = 1;
         printf("\r\n[CMD] App: disarmed\r\n");
@@ -271,7 +281,7 @@ static void vAudioInferTask(void *pvParameters)
           armed = 1;
           Buzzer_StopMelody();
           Alarm_SetState(ALARM_STATE_ARMED);
-          OLED_ShowStatus("ARMED", NULL, 0);
+          Ui_ShowStatus("ARMED", NULL, 0);
         }
         control_state_dirty = 1;
         printf("\r\n[CMD] App: armed\r\n");
@@ -287,7 +297,7 @@ static void vAudioInferTask(void *pvParameters)
       last_env_read = xTaskGetTickCount();
       float temp_c = 0.0f, humi_pct = 0.0f;
       if (DHT11_Read(&temp_c, &humi_pct)) {
-        OLED_SetEnvironment(temp_c, humi_pct, 1);
+        Ui_SetEnvironment(temp_c, humi_pct, 1);
         const char *devid = WifiIoT_GetDeviceId();
         char payload[128];
         snprintf(payload, sizeof(payload),
@@ -312,7 +322,7 @@ static void vAudioInferTask(void *pvParameters)
 
           if (env_alert) {
             printf("\r\n[ENV] %s t=%.1f h=%.1f\r\n", env_alert, (double)temp_c, (double)humi_pct);
-            OLED_ShowStatus("ALERT!", env_alert, 0);
+            Ui_ShowStatus("ALERT!", env_alert, 0);
             /* cry alert has priority — don't overwrite */
             if (Alarm_GetState() != ALARM_STATE_ALERT) {
               Alarm_SetState(ALARM_STATE_ENV_ALERT);
@@ -322,26 +332,11 @@ static void vAudioInferTask(void *pvParameters)
           }
         }
       } else {
-        OLED_SetEnvironment(0.0f, 0.0f, 0);
+        Ui_SetEnvironment(0.0f, 0.0f, 0);
         printf("[DHT11] failed: %s bit=%d\r\n",
                DHT11_GetLastError(), DHT11_GetLastErrorBit());
       }
     }
-
-#if !RECORD_MODE
-    if (Button_HeldMs() >= 3000) {
-      printf("\r\n[BTN] Long press -> soft reset\r\n");
-      OLED_ShowStatus("RESET...", NULL, 0);
-      HAL_Delay(500); NVIC_SystemReset();
-    }
-    if (Button_WasPressed()) {
-      armed = !armed;
-      printf("\r\n[BTN] %s\r\n", armed ? "ARMED" : "DISARMED");
-      if (armed) { Alarm_SetState(ALARM_STATE_ARMED); OLED_ShowStatus("ARMED", NULL, 0); }
-      else       { Buzzer_StopMelody(); Alarm_SetState(ALARM_STATE_IDLE); OLED_ShowStatus("DISARMED", NULL, 0); }
-      control_state_dirty = 1;
-    }
-#endif
 
     {
       AlarmState st = Alarm_GetState();
@@ -387,7 +382,8 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
 }
 
 void FreeRTOS_Init(void) {
-  OLED_Init(); Button_Init(); DHT11_Init(); OLED_ShowStatus("BOOTING..", NULL, 0);
+  DHT11_Init();
+  Ui_ShowStatus("BOOTING..", NULL, 0);
   BaseType_t ret;
   ret = xTaskCreate(vAudioInferTask, "AudioInfer", 4096, NULL, 3, &hAudioTask);
   configASSERT(ret == pdPASS);

@@ -14,4 +14,8 @@ void MX_DMA_Init(void)
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
 
+  /* UART4 RX circular DMA. It does not call FreeRTOS APIs. */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 7, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+
 }

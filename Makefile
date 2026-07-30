@@ -120,10 +120,16 @@ $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile
 $(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf
 	$(HEX) $< $@
 
-$(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf
+# Windows arm-none-eabi-objcopy can fail when HEX and BIN conversions read the
+# same ELF concurrently. Keep compilation parallel, but serialize conversion.
+$(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf $(BUILD_DIR)/%.hex
 	$(BIN) $< $@
 
 clean:
-	-rm -fR $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(BUILD_DIR)') { Remove-Item -LiteralPath '$(BUILD_DIR)' -Recurse -Force }"
+else
+	rm -fR $(BUILD_DIR)
+endif
 
 -include $(wildcard $(BUILD_DIR)/*.d)

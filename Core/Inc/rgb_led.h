@@ -21,6 +21,5 @@ extern const RGB_Color RGB_WHITE;    /* full */
 void RGB_Init(void);
 void RGB_Set(uint8_t r, uint8_t g, uint8_t b);
 void RGB_SetColor(RGB_Color c);
-void RGB_Tick(void);   /* call from TIM6 ISR at ~10kHz */
 
 #endif

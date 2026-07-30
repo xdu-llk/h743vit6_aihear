@@ -146,7 +146,8 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     const char *did = strstr(buf, "\"device\":\"");
     if (!did) return;                             /* no device field → reject */
     did += 10;  /* skip "device":" */
-    if (strncmp(did, mqtt_client_id, strlen(mqtt_client_id)) != 0)
+    size_t id_len = strlen(mqtt_client_id);
+    if (strncmp(did, mqtt_client_id, id_len) != 0 || did[id_len] != '"')
       return;  /* not for this device — ignore */
     Serial.printf("+CMD:%s\r\n", buf);
   }

@@ -1,15 +1,15 @@
 # AI Hear MQTT Protocol v1
 
-The competition build uses tenant `demo` and lowercase device IDs such as
-`aihear_03cb03`.
+The competition build uses tenant `demo` and lowercase device IDs derived from
+each ESP8266 MAC suffix, such as `aihear_03cb03` and `aihear_876f07`.
 
 | Direction | Topic | Payload |
 |---|---|---|
 | Device to App | `aihear/v1/demo/{deviceId}/alert` | JSON alert event |
 | Device to App | `aihear/v1/demo/{deviceId}/status` | JSON device status |
 | Device to App | `aihear/v1/demo/{deviceId}/state` | STM32 control state and command acknowledgement |
-| Device to App | `aihear/env` | DHT11 environment sample (competition compatibility topic) |
-| App to Device | `aihear/cmd` | Device-targeted or broadcast control command |
+| Device to App | `aihear/v1/demo/{deviceId}/env` | Environment sample |
+| App to Device | `aihear/cmd` | Device-targeted control command |
 
 Alert payload:
 
@@ -41,9 +41,11 @@ Targeted command payload:
 {"cmd":"disarm","device":"aihear_03cb03"}
 ```
 
-Omit `device` for a broadcast command. Supported commands are `arm`, `disarm`,
-`play_music`, and `stop_music`. The App updates its controls only after receiving
-the corresponding device state.
+The `device` field is mandatory and must match the target ESP ID exactly;
+commands without it are rejected. Supported commands are `arm`, `disarm`,
+`play_music`, and `stop_music`. “All devices” control is implemented by the App
+publishing one targeted command per bound device. The App updates its controls
+only after receiving the corresponding device state.
 
 During migration, older ESP8266 firmware publishes both `aihear/alert` and
 `aihear/{macSuffix}/alert`. The new App subscribes to the device-specific legacy

@@ -8,9 +8,9 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 代码稳定/待板测 | HSE=25MHz, PLL→480MHz (M=5/N=192/P=2), 2分类 INT8 DS-CNN |
-| ESP8266 | 代码稳定/待板测 | broker-cn.emqx.io, RST接PA2并支持冷启动超时硬复位 |
-| Android App | ✅ 完成 | 4Tab, MQTT, SQLite, WakeLock |
+| STM32 固件 | 阶段1实板回归通过 | HSE=25MHz, PLL→480MHz，2分类 INT8 DS-CNN，UART4循环DMA已跨回绕验证 |
+| ESP8266 | 在线链路通过/源码待更新 | broker-cn.emqx.io，RST接PA2；精确设备ID匹配修复已构建、待分别烧录两台ESP |
+| Android App | ✅ 完成 | 4Tab，多设备绑定与定向控制，MQTT, SQLite, WakeLock |
 | 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
 | PCB+外壳 | ✅ 完成 | 共阴RGB LED, 两颗轻触按键 |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
@@ -48,7 +48,7 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 | `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
-| `Core/Src/wifi_iot.c` | ESP8266通信 | 单字节UART中断+环形缓冲+行解析、+PUB协议 |
+| `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
 | `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
@@ -58,7 +58,7 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 |------|------|------|------|
 | DTCM | 0x20000000 | 128KB | 栈/BSS/heap |
 | AXI SRAM | 0x24000000 | 512KB | `.tensor_arena` (512KB) |
-| D2 SRAM | 0x30000000 | 288KB | `.audio_d2`: DMA缓冲、16384采样环形缓冲、15712采样快照 |
+| D2 SRAM | 0x30000000 | 288KB | `.audio_d2`: 音频DMA/环形缓冲/15712采样快照、UART4 RX DMA缓冲 |
 
 ### 告警逻辑
 
@@ -83,7 +83,7 @@ prob_cry < 75% → NORMAL
 - **UART协议**: `+PUB:topic:payload` 文本协议，115200 baud
 - **MQTT Broker**: `broker-cn.emqx.io:1883` (与Android/Flask统一)
 - **发布语义**: PubSubClient QoS 0；失败时本地重试一次，不宣称Broker确认
-- **设备ID**: `aihear_03cb03` (MAC: 2c:3a:e8:03:cb:03)
+- **设备ID**: 每台ESP按MAC后三字节生成唯一ID；当前两台为`aihear_03cb03`和`aihear_876f07`
 - **告警链路**: STM32检测到哭声 → UART发 `+PUB:aihear/alert:baby_cry:0.95` → ESP8266通过MQTT发布到 `broker-cn.emqx.io` → Android App收到后系统通知+震动
 - **GPIO0长按5秒**: 清除WiFi凭据，恢复AP配网模式
 
@@ -190,9 +190,13 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 完整载板排母、CAMERA FPC、板载占线和布局限制以 `docs/hardware_pin_plan.md` 为准。
 
 ### ESP8266 设备信息
-- Chip: ESP8266EX, Crystal: 26MHz
-- MAC: 2c:3a:e8:03:cb:03
-- Device ID: `aihear_03cb03`
+
+两台设备均为ESP8266EX、26MHz晶振；设备ID由各自MAC后三字节生成，不能在H7或App中写死。
+
+| 设备ID | MAC | 状态 |
+|---|---|---|
+| `aihear_03cb03` | `2c:3a:e8:03:cb:03` | 已知设备 |
+| `aihear_876f07` | 待从第二台ESP启动日志确认完整MAC | 本轮实板/MQTT回归设备 |
 
 ---
 

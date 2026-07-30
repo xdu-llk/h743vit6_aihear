@@ -63,6 +63,7 @@ extern void vPortSVCHandler(void);
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_sai3_a;
+extern DMA_HandleTypeDef hdma_uart4_rx;
 extern TIM_HandleTypeDef htim6;
 extern UART_HandleTypeDef huart4;
 /* USER CODE BEGIN EV */
@@ -232,6 +233,14 @@ void DMA1_Stream0_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Stream0_IRQn 1 */
 
   /* USER CODE END DMA1_Stream0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 stream1 global interrupt.
+  */
+void DMA1_Stream1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_uart4_rx);
 }
 
 /**

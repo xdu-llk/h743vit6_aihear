@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define RX_RING_SIZE  512
+#define UART_RX_DMA_SIZE 1024U
 #define LINE_BUF_SIZE 256
 #define STATUS_TIMEOUT_MS  15000   /* mark offline if no +STATUS for 15 s */
 #define PENDING_QUEUE_SIZE 8       /* max stored alerts/status when link is down */
@@ -12,9 +12,11 @@
 #define ESP_RST_PORT    GPIOA
 #define ESP_RST_PIN     GPIO_PIN_2
 
-static volatile char  rx_ring[RX_RING_SIZE];
-static volatile uint16_t rx_wr = 0;
-static volatile uint16_t rx_rd = 0;
+__attribute__((section(".audio_d2"), aligned(32)))
+static uint8_t uart_rx_dma[UART_RX_DMA_SIZE];
+static volatile uint32_t rx_dma_wraps = 0;
+static uint64_t rx_dma_consumed = 0;
+static volatile uint8_t rx_dma_restart_requested = 0;
 static volatile uint16_t rx_overflow = 0;
 
 static char     line_buf[LINE_BUF_SIZE];
@@ -23,9 +25,6 @@ static uint8_t  line_idx = 0;
 static volatile uint8_t  wifi_state   = 0;
 static volatile uint8_t  mqtt_state   = 0;
 static volatile uint8_t  esp_ready    = 0;
-
-/* ── file‑scope rx_byte — SHARED by uart_start_rx() and the ISR callback ── */
-static volatile uint8_t rx_byte;
 
 /* ── health trackers ── */
 static volatile uint32_t last_puback_seq = 0;
@@ -64,10 +63,36 @@ static void PublishRaw(const char *topic, const char *payload)
   }
 }
 
-/* Start single-byte UART4 RX interrupt */
-static void uart_start_rx(void)
+static bool uart_start_rx(void)
 {
-  HAL_UART_Receive_IT(&huart4, (uint8_t *)&rx_byte, 1);
+  rx_dma_wraps = 0;
+  rx_dma_consumed = 0;
+  rx_dma_restart_requested = 0;
+  if (HAL_UART_Receive_DMA(&huart4, uart_rx_dma, UART_RX_DMA_SIZE) != HAL_OK) {
+    return false;
+  }
+  /* Only the full-buffer interrupt is needed to extend the DMA write index. */
+  __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+  return true;
+}
+
+static void invalidate_dma_chunk(uint32_t offset, uint32_t length)
+{
+  if (length == 0U) return;
+
+  uintptr_t start = (uintptr_t)&uart_rx_dma[offset];
+  uintptr_t end = start + length;
+  start &= ~(uintptr_t)31U;
+  end = (end + 31U) & ~(uintptr_t)31U;
+  SCB_InvalidateDCache_by_Addr((uint32_t *)start, (int32_t)(end - start));
+}
+
+static void invalidate_dma_range(uint32_t offset, uint32_t length)
+{
+  uint32_t first = UART_RX_DMA_SIZE - offset;
+  if (first > length) first = length;
+  invalidate_dma_chunk(offset, first);
+  invalidate_dma_chunk(0U, length - first);
 }
 
 /* Parse one complete line from ESP8266.
@@ -120,14 +145,15 @@ static void process_line(const char *line)
     const char *cmd = p + 5;
     uint8_t next = (cmd_wr + 1) & (CMD_QUEUE_SIZE - 1);
     if (next != cmd_rd) {  /* not full */
-      strncpy(cmd_queue[cmd_wr], cmd, sizeof(cmd_queue[cmd_wr]) - 1);
-      cmd_queue[cmd_wr][sizeof(cmd_queue[cmd_wr]) - 1] = '\0';
+      uint8_t slot = cmd_wr;
+      strncpy(cmd_queue[slot], cmd, sizeof(cmd_queue[slot]) - 1);
+      cmd_queue[slot][sizeof(cmd_queue[slot]) - 1] = '\0';
       /* strip trailing \r */
-      size_t cl = strlen(cmd_queue[cmd_wr]);
-      if (cl > 0 && cmd_queue[cmd_wr][cl - 1] == '\r')
-        cmd_queue[cmd_wr][cl - 1] = '\0';
+      size_t cl = strlen(cmd_queue[slot]);
+      if (cl > 0 && cmd_queue[slot][cl - 1] == '\r')
+        cmd_queue[slot][cl - 1] = '\0';
       cmd_wr = next;
-      printf("[CMD-Q] enqueued '%s'\r\n", cmd_queue[cmd_wr]);
+      printf("[CMD-Q] enqueued '%s'\r\n", cmd_queue[slot]);
     } else {
       printf("[CMD-Q] FULL dropped '%s'\r\n", cmd);
     }
@@ -138,18 +164,17 @@ static void process_line(const char *line)
   }
 }
 
-/* Override __weak HAL callback: every RX byte from UART4 goes into ring buffer */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == UART4) {
-    uint16_t next = (rx_wr + 1) & (RX_RING_SIZE - 1);
-    if (next == rx_rd) {
-      rx_overflow++;               /* ring full — drop oldest */
-      rx_rd = (rx_rd + 1) & (RX_RING_SIZE - 1);
-    }
-    rx_ring[rx_wr] = rx_byte;
-    rx_wr = next;
-    HAL_UART_Receive_IT(&huart4, (uint8_t *)&rx_byte, 1);
+    rx_dma_wraps++;
+  }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == UART4) {
+    rx_dma_restart_requested = 1;
   }
 }
 
@@ -168,26 +193,62 @@ void WifiIoT_Init(void)
   esp_down_since_ms = HAL_GetTick();
   if (esp_down_since_ms == 0) esp_down_since_ms = 1;
 
-  uart_start_rx();
+  if (!uart_start_rx()) {
+    printf("[WiFiIoT] UART4 RX DMA start failed\r\n");
+  }
   printf("[WiFiIoT] Init done, waiting for ESP +READY...\r\n");
+}
+
+static void process_rx_char(char c)
+{
+  if (c == '\n') {
+    if (line_idx > 0) {
+      line_buf[line_idx] = '\0';
+      process_line(line_buf);
+      line_idx = 0;
+    }
+  } else if (c != '\r' && line_idx < LINE_BUF_SIZE - 1) {
+    line_buf[line_idx++] = c;
+  }
 }
 
 void WifiIoT_Process(void)
 {
-  while (rx_rd != rx_wr) {
-    char c = rx_ring[rx_rd];
-    rx_rd = (rx_rd + 1) & (RX_RING_SIZE - 1);
+  if (rx_dma_restart_requested) {
+    HAL_UART_AbortReceive(&huart4);
+    if (!uart_start_rx()) return;
+    printf("[WiFiIoT] UART4 RX DMA restarted after error\r\n");
+  }
 
-    if (c == '\n') {
-      if (line_idx > 0) {
-        line_buf[line_idx] = '\0';
-        process_line(line_buf);
-        line_idx = 0;
-      }
-    } else if (c != '\r' && line_idx < LINE_BUF_SIZE - 1) {
-      line_buf[line_idx++] = c;
-    }
-    /* silently drop if line too long — next '\n' resets */
+  uint32_t wraps_before, wraps_after, write_pos;
+  do {
+    wraps_before = rx_dma_wraps;
+    write_pos = UART_RX_DMA_SIZE - __HAL_DMA_GET_COUNTER(&hdma_uart4_rx);
+    wraps_after = rx_dma_wraps;
+  } while (wraps_before != wraps_after);
+
+  uint64_t produced = (uint64_t)wraps_before * UART_RX_DMA_SIZE + write_pos;
+  if (produced < rx_dma_consumed) {
+    return;
+  }
+
+  uint64_t available = produced - rx_dma_consumed;
+  if (available > UART_RX_DMA_SIZE) {
+    rx_overflow++;
+    rx_dma_consumed = produced - UART_RX_DMA_SIZE;
+    available = UART_RX_DMA_SIZE;
+  }
+
+  /* D2 SRAM is cacheable. Invalidate only bytes completed by DMA before the
+     CPU parses them; the buffer is aligned so no unrelated data is evicted. */
+  uint32_t read_pos = (uint32_t)rx_dma_consumed & (UART_RX_DMA_SIZE - 1U);
+  invalidate_dma_range(read_pos, (uint32_t)available);
+
+  while (rx_dma_consumed < produced) {
+    char c = (char)uart_rx_dma[(uint32_t)rx_dma_consumed &
+                               (UART_RX_DMA_SIZE - 1U)];
+    rx_dma_consumed++;
+    process_rx_char(c);
   }
 }
 

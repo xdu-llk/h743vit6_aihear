@@ -59,7 +59,6 @@ void FreeRTOS_Init(void);
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-static volatile uint32_t irq_tick = 0;
 
 /* USER CODE END PV */
 
@@ -120,7 +119,6 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_TIM3_Init();
-  MX_TIM6_Init();
   MX_UART4_Init();
   MX_SAI3_Init();
   /* USER CODE BEGIN 2 */
@@ -182,9 +180,6 @@ int main(void)
   IWDG1->KR = 0xAAAA;   /* Reload */
   IWDG1->KR = 0xCCCC;   /* Start */
 
-  /* Start TIM6 PWM for RGB LED — AFTER all init to avoid IRQ interference */
-  __HAL_TIM_SET_AUTORELOAD(&htim6, 99);
-  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
   /* Start FreeRTOS scheduler — never returns */
@@ -258,18 +253,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim->Instance == TIM6) {
-    RGB_Tick();
-    irq_tick++;
-    if (irq_tick >= 5000) {   /* 5000 × 0.1ms = 500ms */
-      irq_tick = 0;
-      LED_Toggle();
-    }
-  }
-}
 
 /* USER CODE END 4 */
 
