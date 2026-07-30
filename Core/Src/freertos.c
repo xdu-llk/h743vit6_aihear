@@ -25,7 +25,7 @@
 
 TaskHandle_t hAudioTask = NULL;
 
-/* Stage 1 disables the old OLED and PC4 button. PB10 now drives RGB blue;
+/* Stage 1 disables the old OLED and PC4 button. PB3 now drives RGB blue;
    these hooks become the ST7789 renderer in the next milestone. */
 static void Ui_ShowStatus(const char *status, const char *detail, float dbfs)
 {

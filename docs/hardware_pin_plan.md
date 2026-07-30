@@ -15,7 +15,7 @@
 5. DHT11 从 `PD0` 迁移到 `PE7`；`PD0` 留给 SAI3 时钟。
 6. MQ-135 只读取 AO，接 `PA3/ADC12_INP15`；DO 不接。
 7. GP2Y1010 适配板的 AO 接 `PC1/ADC123_INP11`，ILED 接 `PD7`。
-8. 摄像头 SCCB 占用 `PB8/PB9`，RGB 蓝色迁移到空闲的 `PB10`。
+8. 摄像头 SCCB 占用 `PB8/PB9`；RGB 蓝色使用空闲的 `PB3`，与 `PB4/PB5` 位于同侧相邻排针，便于PCB布线。
 9. KEY1 连接开发板 V2.0 调试排针上的 `RST` 与 `GND`，实现真正硬件复位；KEY2 连接 ESP-01 `GPIO0` 与 GND。
 10. 载板的 5V、3.3V 和 GND 均从 H7 开发板排针取得，USB-C 仍是唯一电源入口。
 
@@ -29,8 +29,8 @@
 |---|---|---|
 | INMP441 | SCK→PD0，SD→PD1，WS→PD4，L/R→GND | 已迁移到 SAI3 |
 | DHT11 | DATA→PE7 | 已迁移，约 2 秒读取一次 |
-| OLED | 不连接 | I2C2/OLED不再初始化；PB10已改作RGB蓝色通道 |
-| RGB | R→PB4，G→PB5，B→PB10，共阴→GND | 三路仅作GPIO开关，不使用软件PWM |
+| OLED | 不连接 | I2C2/OLED不再初始化；PB10/PB11保持空闲 |
+| RGB | R→PB4，G→PB5，B→PB3，共阴→GND | 三路仅作GPIO开关，不使用软件PWM |
 | 蜂鸣器模块 | I/O→PB0 | 当前告警旋律保持不变 |
 | 临时软件按键 | 不连接 | PC4不再初始化，保留给OV2640 RESET；KEY1最终接硬件RST |
 | ESP-01 | RX→PA0，TX→PA1，RST→PA2 | UART4，现有链路不变 |
@@ -51,7 +51,7 @@
 | 蜂鸣器模块 | I/O | PB0 | TIM3_CH3, AF2 | J3-24 | 低电平有效，无源模块 |
 | RGB | R | PB4 | GPIO output | J2-38 | 共阴模块，自带限流电阻 |
 | RGB | G | PB5 | GPIO output | J2-37 | 共阴模块，自带限流电阻 |
-| RGB | B | PB10 | GPIO output | J2-43 | 避开摄像头 SCCB 的 PB8/PB9 |
+| RGB | B | PB3 | GPIO output | 上侧排针，与PB4/PB5相邻 | 避开摄像头和板载QSPI占线 |
 | GP2Y1010 | AO | PC1 | ADC123_INP11 | J3-37 | 使用适配板的 AO |
 | INMP441 | SCK | PD0 | SAI3_SCK_A, AF6 | J2-27 | 从 PE5 迁移 |
 | INMP441 | SD | PD1 | SAI3_SD_A, AF6 | J2-30 | 从 PE6 迁移 |
@@ -135,7 +135,7 @@ FPC 触点 `1、3、8` 为 GND，`9、10` 为 3.3V，插座固定脚 `11、12` �
 
 ### 3.6 RGB 模块，1x4
 
-按实物丝印连接：公共阴极接 GND，R/G/B 分别接 PB4/PB5/PB10。模块已有三个限流电阻。
+按实物丝印连接：公共阴极接 GND，R/G/B 分别接 PB4/PB5/PB3。模块已有三个限流电阻。
 
 ### 3.7 蜂鸣器模块，1x3
 
@@ -179,7 +179,7 @@ ESP 必须可拔下，用外部 CH340 单独烧录。载板不放 ESP 烧录排�
 | - | D7 | PE6 |
 | - | PCLK | PA6 |
 
-摄像头模块自带 24MHz 有源晶振，因此不需要 H7 输出 XCLK。`PC4` 原来的 H7 软件按键功能必须删除，因为它已是摄像头 RESET；旧 OLED 的 `PB10/PB11` 也不再初始化，其中 `PB10` 改作 RGB 蓝色通道。
+摄像头模块自带 24MHz 有源晶振，因此不需要 H7 输出 XCLK。`PC4` 原来的 H7 软件按键功能必须删除，因为它已是摄像头 RESET；旧 OLED 的 `PB10/PB11` 也不再初始化。RGB蓝色改用同侧排针的`PB3`。
 
 补光灯只在抓拍前短暂开启，抓拍完成立即关闭；不作为常亮夜灯。哭声确认后先生成本地事件，再抓拍，摄像头失败不能阻塞声音告警和 MQTT 告警。
 

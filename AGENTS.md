@@ -178,7 +178,7 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 | ESP8266 | PA1(RX) PA0(TX) | UART4, 交叉连接 |
 | OV2640 | 开发板 CAMERA FPC | PB8/PB9 SCCB + 8-bit DCMI，详见 `docs/hardware_pin_plan.md` |
 | DHT11 | PE7(DATA) | single-wire, 3.3V |
-| RGB LED | PB4(R) PB5(G) PB10(B) | 共阴模块，板载限流电阻 |
+| RGB LED | PB4(R) PB5(G) PB3(B) | 共阴模块，板载限流电阻；三路位于同侧相邻排针 |
 | 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
 | ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY FPC，SPI4，3.3V，无RES/MISO |
 | MQ-135 | PA3(AO) | ADC12_INP15，DO不接 |

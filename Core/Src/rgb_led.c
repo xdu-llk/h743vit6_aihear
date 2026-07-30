@@ -6,7 +6,7 @@
 #define RGB_PORT_G  GPIOB
 #define RGB_PIN_G   GPIO_PIN_5   /* PB5 */
 #define RGB_PORT_B  GPIOB
-#define RGB_PIN_B   GPIO_PIN_10  /* PB10; PB8 is reserved for camera SCCB */
+#define RGB_PIN_B   GPIO_PIN_3   /* PB3; adjacent to PB4/PB5 on the header */
 
 /* Predefined colors */
 const RGB_Color RGB_BLACK  = {   0,   0,   0 };
