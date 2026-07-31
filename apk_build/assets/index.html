@@ -473,9 +473,9 @@ function loadAlerts(){
 }
 function clearAlerts(){if(!deviceId)return;if(!confirm('清空 '+deviceAlias(deviceId)+' 的事件记录？'))return;if(typeof Android!=='undefined'&&Android.clearAlertsForDevice)Android.clearAlertsForDevice(deviceId);loadAlerts();}
 
-function requestSnapshot(){if(sendCmd('capture')){document.getElementById('snapshotEmptyText').textContent='正在请求抓拍';showError('抓拍请求已发送');}}
+function requestSnapshot(){if(sendCmd('capture')){var card=document.getElementById('snapshotCard');card.classList.remove('has-image');document.getElementById('snapshotImage').removeAttribute('src');document.getElementById('snapshotEmptyText').textContent='正在请求抓拍';showError('抓拍请求已发送');}}
 function pollSnapshot(){
-  if(!deviceId||typeof Android==='undefined'||!Android.getSnapshotData)return;var data=parseJson(Android.getSnapshotData(deviceId),'{}');if(!data||!data.image)return;
+  if(!deviceId||typeof Android==='undefined'||!Android.getSnapshotData)return;var data=parseJson(Android.getSnapshotData(deviceId),'{}');if(!data)return;if(data.status==='error'&&!data.image){var labels={unavailable:'摄像头未连接',rgb_timeout:'画面采集超时',jpeg_timeout:'照片采集超时',jpeg_invalid:'照片数据无效',io_error:'摄像头通信失败',upload_failed:'照片上传失败'},card=document.getElementById('snapshotCard');card.classList.remove('has-image');document.getElementById('snapshotImage').removeAttribute('src');document.getElementById('snapshotEmptyText').textContent=labels[data.reason]||'抓拍失败';return;}if(!data.image)return;
   var card=document.getElementById('snapshotCard'),img=document.getElementById('snapshotImage');if(img.src!==data.image)img.src=data.image;card.classList.add('has-image');document.getElementById('snapshotTime').textContent=formatTime(data.time||Date.now());document.getElementById('snapshotCaption').textContent=data.eventId?'事件 '+data.eventId:'婴儿房抓拍';
 }
 

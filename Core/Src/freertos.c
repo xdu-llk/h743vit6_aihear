@@ -18,6 +18,7 @@
 #include "mq135_monitor.h"
 #include "gp2y1010.h"
 #include "particle_monitor.h"
+#include "camera.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -42,6 +43,56 @@ static void Ui_ShowStatus(const char *status, const char *detail, float dbfs)
 static void Ui_SetEnvironment(float temp_c, float humi_pct, uint8_t valid)
 {
   TftUi_SetEnvironment(temp_c, humi_pct, valid);
+}
+
+static void ServiceLongOperation(void)
+{
+  WifiIoT_Process();
+  Buzzer_MelodyTick();
+  Alarm_Process();
+  IWDG1->KR = 0xAAAA;
+}
+
+static void CaptureAndPublish(const char *source, float dbfs)
+{
+  uint32_t started = HAL_GetTick();
+  char capture_id[16];
+  snprintf(capture_id, sizeof(capture_id), "h%08lx",
+           (unsigned long)started);
+  if (!Camera_IsAvailable()) {
+    printf("[CAM] %s capture skipped: camera unavailable\r\n", source);
+    WifiIoT_PublishSnapshotStatus(capture_id, "unavailable",
+                                  ServiceLongOperation);
+    if (strcmp(source, "manual") == 0)
+      Ui_ShowStatus("CAMERA OFF", "CHECK MODULE", dbfs);
+    return;
+  }
+
+  Ui_ShowStatus("CAPTURING", source, dbfs);
+  CameraCaptureResult result = Camera_CaptureEvent(1200U, ServiceLongOperation);
+  if (result != CAMERA_CAPTURE_OK) {
+    printf("[CAM] %s capture failed: %s (%lums)\r\n", source,
+           Camera_ResultName(result), (unsigned long)(HAL_GetTick() - started));
+    WifiIoT_PublishSnapshotStatus(capture_id, Camera_ResultName(result),
+                                  ServiceLongOperation);
+    Ui_ShowStatus("CAM ERROR", Camera_ResultName(result), dbfs);
+    return;
+  }
+
+  size_t rgb_length = 0, jpeg_length = 0;
+  const uint8_t *rgb = Camera_GetRgb565(&rgb_length);
+  const uint8_t *jpeg = Camera_GetJpeg(&jpeg_length);
+  bool displayed = TftUi_ShowSnapshot(rgb, (uint32_t)rgb_length);
+  bool uploaded = WifiIoT_PublishSnapshot(jpeg, jpeg_length, capture_id,
+                                          ServiceLongOperation);
+  if (!uploaded)
+    WifiIoT_PublishSnapshotStatus(capture_id, "upload_failed",
+                                  ServiceLongOperation);
+  printf("[CAM] %s capture id=%s jpeg=%uB tft=%s upload=%s total=%lums\r\n",
+         source, capture_id, (unsigned)jpeg_length,
+         displayed ? "ok" : "off", uploaded ? "ok" : "failed",
+         (unsigned long)(HAL_GetTick() - started));
+  TftUi_RestoreDashboard();
 }
 
 static uint8_t PublishControlState(uint8_t armed)
@@ -251,6 +302,7 @@ static void vAudioInferTask(void *pvParameters)
 
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint8_t automatic_capture_requested = 0;
 
     /* Feed IWDG at most every 3s — not every loop (~16ms) */
     {
@@ -315,6 +367,7 @@ static void vAudioInferTask(void *pvParameters)
         Buzzer_PlayMelody();
         { char p[32]; snprintf(p, sizeof(p), "%s:%.2f", names[0], (double)prob_cry);
           WifiIoT_Publish("aihear/alert", p); }
+        automatic_capture_requested = 1;
       } else if (prob_cry >= 0.75f) {
         /* Tier 2: collect two genuinely newer windows, 0.2 s apart. */
         Ui_ShowStatus("VOTING", "CHECK 1/3", dbfs);
@@ -354,6 +407,7 @@ static void vAudioInferTask(void *pvParameters)
             Buzzer_PlayMelody();
             { char p[32]; snprintf(p, sizeof(p), "%s:%.2f", names[0], (double)decision_score);
               WifiIoT_Publish("aihear/alert", p); }
+            automatic_capture_requested = 1;
           }
         } else {
           printf("[VOTE] Timed out waiting for fresh audio (%d/3 valid)\r\n", valid_count);
@@ -368,13 +422,18 @@ static void vAudioInferTask(void *pvParameters)
       }
     }
 
+    if (automatic_capture_requested) CaptureAndPublish("cry", dbfs);
+
     WifiIoT_Process(); WifiIoT_FlushPending();
 
     /* Handle remote commands from App (via MQTT → ESP → UART) */
     while (WifiIoT_HasCommand()) {
       const char *cmd = WifiIoT_PopCommand();
       if (!cmd) continue;
-      if (strstr(cmd, "STOP_MUSIC") || strstr(cmd, "stop_music")) {
+      if (strstr(cmd, "CAPTURE") || strstr(cmd, "capture")) {
+        printf("\r\n[CMD] App: capture\r\n");
+        CaptureAndPublish("manual", dbfs);
+      } else if (strstr(cmd, "STOP_MUSIC") || strstr(cmd, "stop_music")) {
         Buzzer_StopMelody();
         control_state_dirty = 1;
         printf("\r\n[CMD] App: stop music\r\n");

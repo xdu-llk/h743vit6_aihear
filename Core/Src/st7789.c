@@ -189,6 +189,31 @@ void ST7789_FillScreen(uint16_t color)
   ST7789_FillRect(0, 0, ST7789_WIDTH, ST7789_HEIGHT, color);
 }
 
+bool ST7789_DrawRgb565(uint16_t x, uint16_t y, uint16_t width,
+                       uint16_t height, const uint8_t *pixels,
+                       uint32_t length)
+{
+  uint32_t required = (uint32_t)width * height * 2U;
+  if (!s_ready || pixels == NULL || width == 0U || height == 0U ||
+      (uint32_t)x + width > ST7789_WIDTH ||
+      (uint32_t)y + height > ST7789_HEIGHT || length < required ||
+      !SetWindow(x, y, width, height)) return false;
+
+  Select();
+  HAL_GPIO_WritePin(LCD_DC_PORT, LCD_DC_PIN, GPIO_PIN_SET);
+  while (required != 0U) {
+    uint16_t chunk = required > 4096U ? 4096U : (uint16_t)required;
+    if (!Transmit(pixels, chunk)) {
+      Deselect();
+      return false;
+    }
+    pixels += chunk;
+    required -= chunk;
+  }
+  Deselect();
+  return true;
+}
+
 void ST7789_DrawText(uint16_t x, uint16_t y, const char *text,
                      uint8_t scale, uint16_t foreground, uint16_t background)
 {

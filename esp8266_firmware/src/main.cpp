@@ -15,10 +15,11 @@
 static WiFiClient    wifi_client;
 static PubSubClient  mqtt(wifi_client);
 static ESP8266WebServer server(80);
-static char          rx_buf[256];
-static uint8_t       rx_idx = 0;
+static char          rx_buf[448];
+static uint16_t      rx_idx = 0;
 static char ssid[33] = "", pass[33] = "";
 static char mqtt_client_id[32], alert_topic[64], status_topic[64], env_topic[64];
+static char snapshot_topic[64];
 static String last_alert = "";  /* HTTP alert state */
 static uint32_t last_alert_time = 0;
 static uint32_t pub_seq = 0, last_mqtt = 0, last_status = 0;
@@ -117,6 +118,9 @@ static void parse_command(const char *cmd) {
     } else if(strcmp(t,"aihear/env")==0){
       /* env data → device‑scoped topic only, no global broadcast */
       ok=publish_with_retry(env_topic,sep+1,false);
+    } else if(strcmp(t,"aihear/snapshot")==0){
+      /* Compact payload: captureId|seq|total|crc32|base64. */
+      ok=publish_with_retry(snapshot_topic,sep+1,false);
     } else {
       bool retain = strstr(t, "/state") != nullptr;
       ok=publish_with_retry(t,sep+1,retain);
@@ -131,7 +135,7 @@ static void parse_command(const char *cmd) {
 static void publish_status() {
   char json[160];
   snprintf(json,sizeof(json),
-    "{\"deviceId\":\"%s\",\"online\":true,\"uptimeMs\":%lu,\"seq\":%lu,\"fw\":\"bridge-v4\"}",
+    "{\"deviceId\":\"%s\",\"online\":true,\"uptimeMs\":%lu,\"seq\":%lu,\"fw\":\"bridge-v5\"}",
     mqtt_client_id,(unsigned long)millis(),(unsigned long)pub_seq);
   mqtt.publish(status_topic,json,false);
 }
@@ -175,7 +179,9 @@ void setup() {
   snprintf(alert_topic,sizeof(alert_topic),"aihear/v1/demo/%s/alert",mqtt_client_id);
   snprintf(status_topic,sizeof(status_topic),"aihear/v1/demo/%s/status",mqtt_client_id);
   snprintf(env_topic,   sizeof(env_topic),   "aihear/v1/demo/%s/env",   mqtt_client_id);
+  snprintf(snapshot_topic,sizeof(snapshot_topic),"aihear/v1/demo/%s/snapshot",mqtt_client_id);
   boot_id=ESP.getChipId()^micros()^ESP.getCycleCount();
+  mqtt.setBufferSize(512);
   Serial.printf("+DEVICEID:%s\r\n",mqtt_client_id);
 
   if(load_wifi()){
@@ -220,7 +226,7 @@ void loop() {
   while(Serial.available()){
     char c=Serial.read();
     if(c=='\n'){if(rx_idx&&rx_buf[rx_idx-1]=='\r')rx_idx--;rx_buf[rx_idx]=0;parse_command(rx_buf);rx_idx=0;}
-    else if(rx_idx<255) rx_buf[rx_idx++]=c;
+    else if(rx_idx<sizeof(rx_buf)-1U) rx_buf[rx_idx++]=c;
   }
 
   /* AP mode: serve config page */

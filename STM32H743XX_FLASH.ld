@@ -215,6 +215,22 @@ SECTIONS
     . = ALIGN(32);
   } >RAM_D2
 
+  /* Full 240x240 RGB565 frame captured by DCMI for local TFT display. */
+  .camera_rgb (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.camera_rgb)
+    . = ALIGN(32);
+  } >RAM_D2
+
+  /* Bounded JPEG event frame. D3 keeps it separate from audio DMA traffic. */
+  .camera_jpeg (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.camera_jpeg)
+    . = ALIGN(32);
+  } >RAM_D3
+
   /* Remove information from the standard libraries */
   /DISCARD/ :
   {

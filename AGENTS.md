@@ -8,22 +8,24 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 阶段2.3基础实板与环境链路通过 | MQ-135动态基线实板进入normal；GP2Y1010经双层中值后连续约110秒无误报；PM告警/恢复已通过状态机测试、实板事件与公网定向topic核对 |
-| ESP8266 | 两台均已更新并通过隔离验证 | broker-cn.emqx.io，RST接PA2；精确设备ID匹配、伪造后缀拒绝、定向控制与状态回传均实测通过 |
-| Android App | ✅ 完成 | 4Tab，多设备绑定与定向控制，MQTT, SQLite, WakeLock |
+| STM32 固件 | 阶段2.4相机软件流程已烧录 | OV2640缺席可快速降级；手动抓拍失败后音频、MQ-135和GP2Y1010持续运行，无看门狗复位；真实画面待模块验证 |
+| ESP8266 | bridge-v4实板隔离通过；v5待烧录 | 两台v4精确设备ID匹配、定向控制与状态回传已实测；照片定向topic需要分别烧录已构建的bridge-v5 |
+| Android App | ✅ 照片版已构建 | 4Tab、多设备定向控制、JPEG分片重组/CRC校验和抓拍失败状态；最新APK已生成 |
 | TFT | 驱动已随固件烧录/待屏幕验证 | ST7789 240x240，30MHz SPI4，局部刷新；当前未连接屏幕也不阻塞系统 |
+| OV2640 | 驱动与有界抓拍流程完成/待实物验证 | 240x240 RGB565本地显示、320x240 JPEG、60KB上限、15秒上传上限；缺席不影响告警优先发送 |
 | 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
 | PCB+外壳 | ✅ 完成 | 共阴RGB LED, 两颗轻触按键 |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
 
 ## 待处理
 
-1. TFT到货后只连接TFT，验证方向、颜色、状态变化和温湿度2s刷新；无需重新烧录即可先看首版界面
-2. 继续累计测试 STM32/ESP8266 单独复位后的 PA2 自动恢复稳定性
-3. GP2Y1010真实烟尘刺激与MQ-135气体刺激按用户决定暂不进行；PM持续异常/恢复的软件、本地状态和公网/App链路已核对，不作为当前阻塞项
-4. 焊接GP2Y适配板排针后复测长期稳定性；当前未焊排针的临时接线只有在固定不动时可稳定运行
-5. MQ-135按用户最终演示选择AO直连PA3，但厂家资料标称高浓度下可到约4V，此接法存在超过H7 ADC 3.3V范围的已知风险
-6. 国赛阶段保持二分类，多分类不进入当前关键路径
+1. TFT到货后只连接TFT，验证方向、颜色、状态变化和温湿度2s刷新；日志中的`TFT ready`只代表写流程完成，不能证明像素已显示
+2. OV2640到货后验证SCCB ID、RGB方向/字节序、补光、JPEG大小与抓拍耗时，再联调TFT显示
+3. 两台ESP分别烧录bridge-v5并安装最新APK，完成真实照片的设备隔离、分片上传和App显示验证
+4. 继续累计测试 STM32/ESP8266 单独复位后的 PA2 自动恢复稳定性
+5. 焊接GP2Y适配板排针后复测长期稳定性；真实烟尘与气体刺激暂不作为当前阻塞项
+6. MQ-135 AO直连PA3存在高浓度时超过H7 ADC 3.3V范围的已知演示风险
+7. 国赛阶段保持二分类，多分类不进入当前关键路径
 
 ---
 
@@ -53,6 +55,7 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
+| `Core/Src/camera.c` | OV2640事件抓拍 | 软件SCCB、DCMI+DMA2、有界RGB/JPEG采集、缺席快速降级 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
 | `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，通道切换后丢弃首样本、16次均值、60秒最低预热+动态稳定基线、EMA、5次确认、回差恢复；只显示相对指数 |
 | `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，每秒9个厂家时序脉冲取中值，再做5点跨秒中值、10点基线、EMA、5次确认与回差恢复；只显示相对指数 |
@@ -64,7 +67,8 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 |------|------|------|------|
 | DTCM | 0x20000000 | 128KB | 栈/BSS/heap |
 | AXI SRAM | 0x24000000 | 512KB | `.tensor_arena` (512KB) |
-| D2 SRAM | 0x30000000 | 288KB | `.audio_d2`: 音频DMA/环形缓冲/15712采样快照、UART4 RX DMA缓冲 |
+| D2 SRAM | 0x30000000 | 288KB | `.audio_d2` 131456B + `.camera_rgb` 115200B，剩余约47KB |
+| D3 SRAM | 0x38000000 | 64KB | `.camera_jpeg` 61440B，剩余4KB，禁止再增加大缓冲 |
 
 ### 告警逻辑
 
@@ -91,6 +95,7 @@ prob_cry < 75% → NORMAL
 - **发布语义**: PubSubClient QoS 0；失败时本地重试一次，不宣称Broker确认
 - **设备ID**: 每台ESP按MAC后三字节生成唯一ID；当前两台为`aihear_03cb03`和`aihear_876f07`
 - **告警链路**: STM32检测到哭声 → UART发 `+PUB:aihear/alert:baby_cry:0.95` → ESP8266通过MQTT发布到 `broker-cn.emqx.io` → Android App收到后系统通知+震动
+- **抓拍链路(v5)**: `captureId|seq|total|crc32|base64` 分片发布到设备级`/snapshot`；QoS 0，本地发布确认不等于Broker确认
 - **GPIO0长按5秒**: 清除WiFi凭据，恢复AP配网模式
 
 ---
@@ -113,7 +118,7 @@ AlertDbHelper.java (SQLite: alerts + feeding 双表)
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1通信、WakeLock、哭声20s/环境5min通知冷却、10min入库去重 |
+| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1、WakeLock、告警去重、最多60KB JPEG分片重组与CRC32校验 |
 | `AlertDbHelper.java` | SQLite持久化 | 双表+时间索引、直接返回JSONArray |
 | `AndroidBridge.java` | JS桥接 | WeakReference防泄漏、try-catch全包裹、双向通信 |
 | `MainActivity.java` | Activity容器 | 全屏沉浸、通知权限适配、WebView安全配置 |
@@ -171,8 +176,8 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 
 | 端 | Broker | Topic |
 |----|--------|-------|
-| ESP8266 | broker-cn.emqx.io:1883 | 发布 aihear/alert, aihear/status |
-| Android | broker-cn.emqx.io:1883 | 订阅 aihear/alert |
+| ESP8266 | broker-cn.emqx.io:1883 | 发布设备级 alert/status/env/state/snapshot |
+| Android | broker-cn.emqx.io:1883 | 订阅所有设备级topic，向`aihear/cmd`发送定向命令 |
 
 ---
 
@@ -221,6 +226,9 @@ C:/Users/jeveux/.platformio/penv/Scripts/pio.exe run -t upload
 
 # Android APK 构建
 bash apk_build/build_apk.sh
+
+# Android桥接与真实JPEG页面回归（输入必须是<=60KB的完整JPEG）
+node apk_build/test_webview_bridge.mjs path/to/photo.jpg build
 
 # Python 训练
 cd training

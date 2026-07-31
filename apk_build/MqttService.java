@@ -15,7 +15,9 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Vibrator;
 import android.util.Log;
+import android.util.Base64;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -34,6 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.CRC32;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -56,6 +59,7 @@ public class MqttService extends Service {
     private static final String TOPIC_LEGACY_STATUS = "aihear/status";
     private static final String TOPIC_ENV_FILTER    = "aihear/v1/demo/+/env";
     private static final String TOPIC_STATE_FILTER  = "aihear/v1/demo/+/state";
+    private static final String TOPIC_SNAPSHOT_FILTER = "aihear/v1/demo/+/snapshot";
     private static final String TOPIC_CMD           = "aihear/cmd";
     private static final String PREFS_NAME = "aihear_mqtt";
     private static final String KEY_CLIENT_ID = "mqtt_client_id";
@@ -94,6 +98,27 @@ public class MqttService extends Service {
         new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> sDeviceEnv =
         new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> sDeviceSnapshots =
+        new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SnapshotAssembly> snapshotAssemblies =
+        new ConcurrentHashMap<>();
+
+    private static class SnapshotAssembly {
+        final String captureId;
+        final int total;
+        final long crc;
+        final byte[][] chunks;
+        final long startedMs = System.currentTimeMillis();
+        int received;
+        int bytes;
+
+        SnapshotAssembly(String captureId, int total, long crc) {
+            this.captureId = captureId;
+            this.total = total;
+            this.crc = crc;
+            this.chunks = new byte[total][];
+        }
+    }
 
     // ── env hourly aggregation (background-thread aggregation, main-thread write) ──
     private static final ConcurrentHashMap<String, EnvAggregate> sEnvAggregates =
@@ -163,6 +188,12 @@ public class MqttService extends Service {
         if (deviceId == null) return "{}";
         String state = sDeviceControlState.get(DeviceRegistry.normalize(deviceId));
         return state == null ? "{}" : state;
+    }
+
+    public static String getSnapshotData(String deviceId) {
+        if (deviceId == null) return "{}";
+        String snapshot = sDeviceSnapshots.get(DeviceRegistry.normalize(deviceId));
+        return snapshot == null ? "{}" : snapshot;
     }
 
     public static String getEnvData(String deviceId) {
@@ -294,7 +325,8 @@ public class MqttService extends Service {
                         !subscribeTopic(in, out, TOPIC_LEGACY_DEVICE_ALERT_FILTER, 3) ||
                         !subscribeTopic(in, out, TOPIC_LEGACY_STATUS, 4) ||
                         !subscribeTopic(in, out, TOPIC_ENV_FILTER, 5) ||
-                        !subscribeTopic(in, out, TOPIC_STATE_FILTER, 6)) {
+                        !subscribeTopic(in, out, TOPIC_STATE_FILTER, 6) ||
+                        !subscribeTopic(in, out, TOPIC_SNAPSHOT_FILTER, 7)) {
                         sock.close();
                         backoff = backoff(backoff, maxBackoff);
                         continue;
@@ -354,6 +386,7 @@ public class MqttService extends Service {
                                     String statusDevice = deviceIdFromTopic(pub.topic, "status");
                                     String stateDevice = deviceIdFromTopic(pub.topic, "state");
                                     String envDevice = deviceIdFromTopic(pub.topic, "env");
+                                    String snapshotDevice = deviceIdFromTopic(pub.topic, "snapshot");
                                     String legacyAlertDevice = deviceIdFromLegacyTopic(pub.topic);
                                     if (alertDevice != null && DeviceRegistry.contains(this, alertDevice)) {
                                         handleAlert(alertDevice, pub.topic, pub.payload);
@@ -445,6 +478,9 @@ public class MqttService extends Service {
                                                 });
                                             }
                                         } catch (Exception ignored) {}
+                                    } else if (snapshotDevice != null &&
+                                               DeviceRegistry.contains(this, snapshotDevice)) {
+                                        handleSnapshotChunk(snapshotDevice, pub.payload);
                                     } else if (TOPIC_LEGACY_STATUS.equals(pub.topic)) {
                                         String id = DeviceRegistry.normalize(pub.payload);
                                         if (DeviceRegistry.contains(this, id))
@@ -905,7 +941,81 @@ public class MqttService extends Service {
         });
     }
 
-    /** 停止告警（通知 + 震动），但不断开 MQTT */
+    /** Reassemble one device-scoped, CRC-protected JPEG snapshot. */
+    private void handleSnapshotChunk(String deviceId, String payload) {
+        try {
+            if (payload.startsWith("!|")) {
+                String[] statusFields = payload.split("\\|", 3);
+                if (statusFields.length == 3 &&
+                    statusFields[1].matches("[A-Za-z0-9_-]{1,24}") &&
+                    statusFields[2].matches("[a-z_]{2,24}")) {
+                    JSONObject status = new JSONObject();
+                    status.put("eventId", statusFields[1]);
+                    status.put("time", System.currentTimeMillis());
+                    status.put("status", "error");
+                    status.put("reason", statusFields[2]);
+                    sDeviceSnapshots.put(deviceId, status.toString());
+                }
+                return;
+            }
+            String[] fields = payload.split("\\|", 5);
+            if (fields.length != 5 || !fields[0].matches("[A-Za-z0-9_-]{1,24}")) return;
+            String captureId = fields[0];
+            int seq = Integer.parseInt(fields[1]);
+            int total = Integer.parseInt(fields[2]);
+            long expectedCrc = Long.parseLong(fields[3], 16) & 0xffffffffL;
+            if (total < 1 || total > 256 || seq < 0 || seq >= total) return;
+            byte[] chunk = Base64.decode(fields[4], Base64.DEFAULT);
+            if (chunk.length == 0 || chunk.length > 240) return;
+
+            long now = System.currentTimeMillis();
+            SnapshotAssembly assembly = snapshotAssemblies.get(deviceId);
+            if (assembly == null || !assembly.captureId.equals(captureId) ||
+                assembly.total != total || assembly.crc != expectedCrc ||
+                now - assembly.startedMs > 30_000) {
+                assembly = new SnapshotAssembly(captureId, total, expectedCrc);
+                snapshotAssemblies.put(deviceId, assembly);
+            }
+            if (assembly.chunks[seq] == null) {
+                assembly.chunks[seq] = chunk;
+                assembly.received++;
+                assembly.bytes += chunk.length;
+            }
+            if (assembly.bytes > 60 * 1024 || assembly.received != assembly.total) return;
+
+            ByteArrayOutputStream image = new ByteArrayOutputStream(assembly.bytes);
+            for (byte[] part : assembly.chunks) {
+                if (part == null) return;
+                image.write(part, 0, part.length);
+            }
+            byte[] jpeg = image.toByteArray();
+            CRC32 crc32 = new CRC32();
+            crc32.update(jpeg);
+            if (crc32.getValue() != assembly.crc || jpeg.length < 4 ||
+                (jpeg[0] & 0xff) != 0xff || (jpeg[1] & 0xff) != 0xd8 ||
+                (jpeg[jpeg.length - 2] & 0xff) != 0xff ||
+                (jpeg[jpeg.length - 1] & 0xff) != 0xd9) {
+                snapshotAssemblies.remove(deviceId);
+                Log.w(TAG, "snapshot CRC/JPEG validation failed for " + deviceId);
+                return;
+            }
+            JSONObject result = new JSONObject();
+            result.put("eventId", captureId);
+            result.put("time", now);
+            result.put("status", "ok");
+            result.put("image", "data:image/jpeg;base64," +
+                       Base64.encodeToString(jpeg, Base64.NO_WRAP));
+            sDeviceSnapshots.put(deviceId, result.toString());
+            snapshotAssemblies.remove(deviceId);
+            sDeviceLastSeen.put(deviceId, now);
+            sMsgCount++;
+            Log.i(TAG, "snapshot complete device=" + deviceId + " bytes=" + jpeg.length);
+        } catch (Exception e) {
+            Log.w(TAG, "snapshot chunk rejected: " + e.getMessage());
+        }
+    }
+
+    /** Stop notification and vibration without disconnecting MQTT. */
     void stopAlarm() {
         if (vibrator != null) vibrator.cancel();
         NotificationManager nm =

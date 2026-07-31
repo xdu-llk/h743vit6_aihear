@@ -40,6 +40,7 @@
 #include "tft_ui.h"
 #include "mq135.h"
 #include "gp2y1010.h"
+#include "camera.h"
 #include "arm_math.h"
 #include <string.h>
 
@@ -145,6 +146,12 @@ int main(void)
     printf("[TFT] ST7789 ready at 240x240\r\n");
   } else {
     printf("[TFT] initialization failed; continuing headless\r\n");
+  }
+  IWDG1->KR = 0xAAAA;
+  if (Camera_Init()) {
+    printf("[CAM] OV2640 ready, ID=0x%04X\r\n", Camera_GetSensorId());
+  } else {
+    printf("[CAM] OV2640 not detected; capture disabled, monitoring continues\r\n");
   }
   IWDG1->KR = 0xAAAA;
 

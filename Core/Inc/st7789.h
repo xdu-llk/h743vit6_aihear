@@ -17,6 +17,9 @@ void ST7789_SetBacklight(bool enabled);
 void ST7789_FillScreen(uint16_t color);
 void ST7789_FillRect(uint16_t x, uint16_t y, uint16_t width,
                      uint16_t height, uint16_t color);
+bool ST7789_DrawRgb565(uint16_t x, uint16_t y, uint16_t width,
+                       uint16_t height, const uint8_t *pixels,
+                       uint32_t length);
 void ST7789_DrawText(uint16_t x, uint16_t y, const char *text,
                      uint8_t scale, uint16_t foreground, uint16_t background);
 

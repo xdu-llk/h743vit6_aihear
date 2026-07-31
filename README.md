@@ -187,6 +187,7 @@ humi < 30%  → humi_low
 - 基于 TCP Socket 手写 MQTT 3.1.1 协议栈（零第三方 MQTT 库）
 - 前台 Service + WakeLock 息屏保活
 - 4 Tab：告警(首页)、喂养、统计(Chart.js 双折线图)、AI 分析(DeepSeek)
+- 事件抓拍：设备级JPEG分片重组、CRC32/SOI/EOI校验、60KB上限和明确失败状态
 - env_hourly 聚合：每 2s 接收环境样本并更新 SQLite，每小时一行 (avg/max/min)
 - 去重策略：STM32 20s(哭)/5min(env) / 通知 20s(哭)/5min(env) / 入库 10min
 
@@ -194,7 +195,7 @@ humi < 30%  → humi_low
 
 | 端 | Broker | Topic |
 |------|------|------|
-| ESP8266 | broker-cn.emqx.io:1883 | `aihear/v1/demo/{id}/alert`, `/status`, `/env`, `/state` |
+| ESP8266 | broker-cn.emqx.io:1883 | `aihear/v1/demo/{id}/alert`, `/status`, `/env`, `/state`, `/snapshot` |
 | Android | broker-cn.emqx.io:1883 | 订阅所有设备级 topic + `aihear/cmd` (命令下发) |
 
 Payload 格式：
@@ -202,6 +203,7 @@ Payload 格式：
 - 温湿度告警: `temp_high` (纯 class 名)
 - 环境数据: `{"deviceId":"…","temp":28.5,"humi":55,"uptimeMs":…}`
 - 控制命令: `{"cmd":"arm","device":"aihear_03cb03"}`
+- 抓拍分片: `captureId|seq|total|crc32|base64`
 
 ---
 

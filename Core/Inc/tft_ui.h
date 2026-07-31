@@ -11,5 +11,7 @@ void TftUi_SetParticleQuality(float index, uint8_t ready, uint8_t alarm,
                               uint8_t fault);
 void TftUi_SetGasQuality(float index, uint8_t ready, uint8_t alarm,
                          uint8_t fault);
+bool TftUi_ShowSnapshot(const uint8_t *rgb565, uint32_t length);
+void TftUi_RestoreDashboard(void);
 
 #endif

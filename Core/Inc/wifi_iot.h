@@ -3,6 +3,8 @@
 
 #include "main.h"
 #include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 /* ESP8266 connection states */
 #define WIFI_STATE_OFF         0
@@ -28,6 +30,13 @@ uint32_t WifiIoT_GetLastPubackSeq(void);
 uint16_t WifiIoT_GetRxOverflow(void);
 uint8_t  WifiIoT_GetPendingCount(void);
 const char* WifiIoT_GetDeviceId(void);
+typedef void (*WifiIoTServiceFn)(void);
+bool WifiIoT_PublishSnapshot(const uint8_t *jpeg, size_t length,
+                             const char *capture_id,
+                             WifiIoTServiceFn service);
+bool WifiIoT_PublishSnapshotStatus(const char *capture_id,
+                                   const char *status,
+                                   WifiIoTServiceFn service);
 
 /* Remote commands from App via MQTT → ESP → UART */
 bool        WifiIoT_HasCommand(void);

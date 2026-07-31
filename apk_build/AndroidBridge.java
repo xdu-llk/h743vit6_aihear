@@ -334,6 +334,11 @@ public class AndroidBridge {
     }
 
     @JavascriptInterface
+    public String getSnapshotData(String deviceId) {
+        return MqttService.getSnapshotData(deviceId != null ? deviceId : "");
+    }
+
+    @JavascriptInterface
     public void setMonitoredDevice(String deviceId, boolean monitorAll) {
         MqttService.sMonitoredDevice = deviceId != null ? deviceId : "";
         MqttService.sMonitorAll = monitorAll;

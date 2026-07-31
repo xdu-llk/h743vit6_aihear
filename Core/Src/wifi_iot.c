@@ -1,4 +1,5 @@
 #include "wifi_iot.h"
+#include "camera.h"
 #include "usart.h"
 #include <stdio.h>
 #include <string.h>
@@ -8,7 +9,10 @@
 #define STATUS_TIMEOUT_MS  15000   /* mark offline if no +STATUS for 15 s */
 #define PENDING_QUEUE_SIZE 8       /* max stored alerts/status when link is down */
 #define PENDING_PAYLOAD_SIZE 232
-#define PUBLISH_CMD_SIZE 320
+#define PUBLISH_CMD_SIZE 448
+#define SNAPSHOT_CHUNK_BYTES 240U
+#define SNAPSHOT_ACK_TIMEOUT_MS 1000U
+#define SNAPSHOT_UPLOAD_TIMEOUT_MS 15000U
 #define ESP_RESET_DEADLINE_MS 20000 /* hard-reset ESP after 20 s of no STATUS */
 #define ESP_MAX_RESETS  3          /* max hard resets per power cycle */
 #define ESP_RST_PORT    GPIOA
@@ -63,6 +67,97 @@ static void PublishRaw(const char *topic, const char *payload)
   if (len > 0 && len < (int)sizeof(cmd)) {
     HAL_UART_Transmit(&huart4, (uint8_t *)cmd, len, 100);
   }
+}
+
+static bool PublishRawAndWait(const char *topic, const char *payload,
+                              WifiIoTServiceFn service)
+{
+  WifiIoT_Process();
+  uint32_t ack_before = last_puback_seq;
+  PublishRaw(topic, payload);
+  uint32_t started = HAL_GetTick();
+  while ((HAL_GetTick() - started) < SNAPSHOT_ACK_TIMEOUT_MS) {
+    WifiIoT_Process();
+    if (last_puback_seq != ack_before) return true;
+    if (!WifiIoT_IsReady()) return false;
+    if (service) service();
+    IWDG1->KR = 0xAAAA;
+    HAL_Delay(1);
+  }
+  return false;
+}
+
+static uint32_t crc32_bytes(const uint8_t *data, size_t length)
+{
+  uint32_t crc = 0xffffffffU;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= data[i];
+    for (uint8_t bit = 0; bit < 8U; ++bit)
+      crc = (crc >> 1U) ^ (0xedb88320U & (uint32_t)-(int32_t)(crc & 1U));
+  }
+  return ~crc;
+}
+
+static size_t base64_encode(const uint8_t *input, size_t length, char *output)
+{
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  size_t in = 0, out = 0;
+  while (in < length) {
+    uint32_t value = (uint32_t)input[in++] << 16U;
+    bool have_second = in < length;
+    if (have_second) value |= (uint32_t)input[in++] << 8U;
+    bool have_third = in < length;
+    if (have_third) value |= input[in++];
+    output[out++] = alphabet[(value >> 18U) & 0x3fU];
+    output[out++] = alphabet[(value >> 12U) & 0x3fU];
+    output[out++] = have_second ? alphabet[(value >> 6U) & 0x3fU] : '=';
+    output[out++] = have_third ? alphabet[value & 0x3fU] : '=';
+  }
+  output[out] = '\0';
+  return out;
+}
+
+bool WifiIoT_PublishSnapshot(const uint8_t *jpeg, size_t length,
+                             const char *capture_id,
+                             WifiIoTServiceFn service)
+{
+  if (!jpeg || !capture_id || !capture_id[0] || length < 4U ||
+      length > CAMERA_JPEG_MAX_BYTES || !WifiIoT_IsReady()) return false;
+  uint32_t total = (uint32_t)((length + SNAPSHOT_CHUNK_BYTES - 1U) /
+                              SNAPSHOT_CHUNK_BYTES);
+  uint32_t crc = crc32_bytes(jpeg, length);
+  uint32_t upload_started = HAL_GetTick();
+  char encoded[SNAPSHOT_CHUNK_BYTES * 4U / 3U + 1U];
+  char payload[384];
+
+  for (uint32_t seq = 0; seq < total; ++seq) {
+    if ((HAL_GetTick() - upload_started) >= SNAPSHOT_UPLOAD_TIMEOUT_MS)
+      return false;
+    size_t offset = (size_t)seq * SNAPSHOT_CHUNK_BYTES;
+    size_t chunk = length - offset;
+    if (chunk > SNAPSHOT_CHUNK_BYTES) chunk = SNAPSHOT_CHUNK_BYTES;
+    base64_encode(jpeg + offset, chunk, encoded);
+    int written = snprintf(payload, sizeof(payload), "%s|%lu|%lu|%08lx|%s",
+                           capture_id, (unsigned long)seq,
+                           (unsigned long)total, (unsigned long)crc, encoded);
+    if (written <= 0 || written >= (int)sizeof(payload) ||
+        !PublishRawAndWait("aihear/snapshot", payload, service)) return false;
+  }
+  return true;
+}
+
+bool WifiIoT_PublishSnapshotStatus(const char *capture_id,
+                                   const char *status,
+                                   WifiIoTServiceFn service)
+{
+  if (!capture_id || !capture_id[0] || !status || !status[0] ||
+      !WifiIoT_IsReady()) return false;
+  char payload[80];
+  int written = snprintf(payload, sizeof(payload), "!|%s|%s",
+                         capture_id, status);
+  return written > 0 && written < (int)sizeof(payload) &&
+         PublishRawAndWait("aihear/snapshot", payload, service);
 }
 
 static bool uart_start_rx(void)
