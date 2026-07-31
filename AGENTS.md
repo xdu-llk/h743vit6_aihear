@@ -8,7 +8,7 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 阶段2.3软件完成/新增传感器待实板验证 | 阶段2.1音频、ESP/MQTT、DHT实板回归通过；MQ-135与GP2Y1010共享HAL ADC、各自相对基线/故障/告警状态机已全量构建并通过宿主单测 |
+| STM32 固件 | 阶段2.3基础实板回归通过/刺激告警待测 | MQ-135动态基线实板进入normal；GP2Y1010经双层中值后连续约110秒无误报；音频、ESP/MQTT、DHT与环境定向上报同时正常 |
 | ESP8266 | 两台均已更新并通过隔离验证 | broker-cn.emqx.io，RST接PA2；精确设备ID匹配、伪造后缀拒绝、定向控制与状态回传均实测通过 |
 | Android App | ✅ 完成 | 4Tab，多设备绑定与定向控制，MQTT, SQLite, WakeLock |
 | TFT | 驱动已随固件烧录/待屏幕验证 | ST7789 240x240，30MHz SPI4，局部刷新；当前未连接屏幕也不阻塞系统 |
@@ -20,8 +20,9 @@
 
 1. TFT到货后只连接TFT，验证方向、颜色、状态变化和温湿度2s刷新；无需重新烧录即可先看首版界面
 2. 继续累计测试 STM32/ESP8266 单独复位后的 PA2 自动恢复稳定性
-3. MQ-135仍需先测AO不高于3.3V；GP2Y适配板已有1:10分压依据，可先连接并验证基线、告警与恢复
-4. 国赛阶段保持二分类，多分类不进入当前关键路径
+3. 分别对MQ-135和GP2Y1010做一次受控刺激，验证持续异常、红灯/TFT、App告警与恢复；禁止用打火机气体或高浓度烟雾测试MQ
+4. MQ-135按用户最终演示选择AO直连PA3，但厂家资料标称高浓度下可到约4V，此接法存在超过H7 ADC 3.3V范围的已知风险
+5. 国赛阶段保持二分类，多分类不进入当前关键路径
 
 ---
 
@@ -52,8 +53,8 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
-| `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，16次均值、30秒预热+30点基线、EMA、5次确认、回差恢复；只显示相对指数 |
-| `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，厂家280μs时序、10点基线、EMA、5次确认、回差恢复；只显示相对指数 |
+| `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，通道切换后丢弃首样本、16次均值、60秒最低预热+动态稳定基线、EMA、5次确认、回差恢复；只显示相对指数 |
+| `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，每秒9个厂家时序脉冲取中值，再做5点跨秒中值、10点基线、EMA、5次确认与回差恢复；只显示相对指数 |
 | `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
 ### 内存布局
@@ -185,7 +186,7 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 | RGB LED | PB4(R) PB5(G) PB3(B) | 共阴模块，板载限流电阻；三路位于同侧相邻排针 |
 | 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
 | ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY FPC，SPI4，3.3V，无RES/MISO |
-| MQ-135 | PA3(AO) | ADC12_INP15，DO不接 |
+| MQ-135 | PA3(AO) | ADC12_INP15，DO不接；厂家标称AO最高约4V，直连为用户接受的演示风险，不是安全量产接法 |
 | GP2Y1010 | PC1(AO) PD7(ILED) | ADC123_INP11 + LED采样脉冲 |
 | 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位H7；KEY2长按配网 |
 | USB-TTL | PA9(TX) PA10(RX) | 调试串口 CH340 |

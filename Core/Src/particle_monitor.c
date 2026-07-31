@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define PARTICLE_BASELINE_SAMPLES 10U
+#define PARTICLE_MEDIAN_SAMPLES    5U
 #define PARTICLE_CONFIRM_SAMPLES   5U
 #define PARTICLE_FAULT_SAMPLES     3U
 #define PARTICLE_RAW_VALID_MIN    16U
@@ -19,6 +20,39 @@ static uint8_t s_invalid_streak;
 static uint8_t s_valid_streak;
 static float s_filtered_raw;
 static float s_baseline_raw;
+static uint16_t s_raw_history[PARTICLE_MEDIAN_SAMPLES];
+static uint8_t s_raw_history_count;
+static uint8_t s_raw_history_next;
+
+static void ResetRawHistory(void)
+{
+  memset(s_raw_history, 0, sizeof(s_raw_history));
+  s_raw_history_count = 0;
+  s_raw_history_next = 0;
+}
+
+static bool PushRawMedian(uint16_t raw, uint16_t *median)
+{
+  s_raw_history[s_raw_history_next] = raw;
+  s_raw_history_next =
+      (uint8_t)((s_raw_history_next + 1U) % PARTICLE_MEDIAN_SAMPLES);
+  if (s_raw_history_count < PARTICLE_MEDIAN_SAMPLES) s_raw_history_count++;
+  if (s_raw_history_count < PARTICLE_MEDIAN_SAMPLES) return false;
+
+  uint16_t sorted[PARTICLE_MEDIAN_SAMPLES];
+  memcpy(sorted, s_raw_history, sizeof(sorted));
+  for (uint8_t i = 1; i < PARTICLE_MEDIAN_SAMPLES; i++) {
+    uint16_t value = sorted[i];
+    uint8_t j = i;
+    while (j > 0U && sorted[j - 1U] > value) {
+      sorted[j] = sorted[j - 1U];
+      j--;
+    }
+    sorted[j] = value;
+  }
+  *median = sorted[PARTICLE_MEDIAN_SAMPLES / 2U];
+  return true;
+}
 
 static void StartBaseline(void)
 {
@@ -28,6 +62,7 @@ static void StartBaseline(void)
   s_baseline_count = 0;
   s_filtered_raw = 0.0f;
   s_baseline_raw = 0.0f;
+  ResetRawHistory();
 }
 
 void ParticleMonitor_Init(void)
@@ -83,8 +118,14 @@ ParticleMonitorUpdate ParticleMonitor_Update(bool sample_valid, uint16_t raw)
   }
   s_valid_streak = 0;
 
+  uint16_t median_raw;
+  if (!PushRawMedian(raw, &median_raw)) {
+    events = s_state;
+    return events;
+  }
+
   if (s_state.phase == PARTICLE_PHASE_BASELINE) {
-    s_baseline_sum += raw;
+    s_baseline_sum += median_raw;
     s_baseline_count++;
     if (s_baseline_count < PARTICLE_BASELINE_SAMPLES) {
       events = s_state;
@@ -100,7 +141,8 @@ ParticleMonitorUpdate ParticleMonitor_Update(bool sample_valid, uint16_t raw)
     return events;
   }
 
-  s_filtered_raw += PARTICLE_FILTER_ALPHA * ((float)raw - s_filtered_raw);
+  s_filtered_raw += PARTICLE_FILTER_ALPHA *
+                    ((float)median_raw - s_filtered_raw);
   s_state.index = 100.0f * s_filtered_raw / s_baseline_raw;
   s_state.baseline = (uint16_t)(s_baseline_raw + 0.5f);
 

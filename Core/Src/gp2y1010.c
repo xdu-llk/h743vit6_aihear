@@ -5,6 +5,9 @@
 #define GP2Y_ILED_PORT GPIOD
 #define GP2Y_ILED_PIN  GPIO_PIN_7
 #define GP2Y_SAMPLE_DELAY_US 280U
+#define GP2Y_LED_OFF_DELAY_US  40U
+#define GP2Y_PULSE_PERIOD_MS    10U
+#define GP2Y_BURST_SAMPLES       9U
 
 static uint32_t s_cycles_per_us;
 static bool s_initialized;
@@ -47,9 +50,26 @@ bool Gp2y1010_ReadRaw(uint16_t *raw)
   uint16_t discard;
   if (!Adc1_ReadSelected(1U, &discard)) return false;
 
-  HAL_GPIO_WritePin(GP2Y_ILED_PORT, GP2Y_ILED_PIN, GPIO_PIN_SET);
-  DelayUs(GP2Y_SAMPLE_DELAY_US);
-  bool ok = Adc1_ReadSelected(1U, raw);
-  HAL_GPIO_WritePin(GP2Y_ILED_PORT, GP2Y_ILED_PIN, GPIO_PIN_RESET);
-  return ok;
+  uint16_t samples[GP2Y_BURST_SAMPLES];
+  for (uint8_t i = 0; i < GP2Y_BURST_SAMPLES; i++) {
+    HAL_GPIO_WritePin(GP2Y_ILED_PORT, GP2Y_ILED_PIN, GPIO_PIN_SET);
+    DelayUs(GP2Y_SAMPLE_DELAY_US);
+    bool ok = Adc1_ReadSelected(1U, &samples[i]);
+    DelayUs(GP2Y_LED_OFF_DELAY_US);
+    HAL_GPIO_WritePin(GP2Y_ILED_PORT, GP2Y_ILED_PIN, GPIO_PIN_RESET);
+    if (!ok) return false;
+    if (i + 1U < GP2Y_BURST_SAMPLES) HAL_Delay(GP2Y_PULSE_PERIOD_MS);
+  }
+
+  for (uint8_t i = 1; i < GP2Y_BURST_SAMPLES; i++) {
+    uint16_t value = samples[i];
+    uint8_t j = i;
+    while (j > 0U && samples[j - 1U] > value) {
+      samples[j] = samples[j - 1U];
+      j--;
+    }
+    samples[j] = value;
+  }
+  *raw = samples[GP2Y_BURST_SAMPLES / 2U];
+  return true;
 }

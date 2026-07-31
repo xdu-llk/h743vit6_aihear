@@ -2,34 +2,51 @@
 
 #include <string.h>
 
-#define MQ135_WARMUP_MS          30000U
-#define MQ135_BASELINE_SAMPLES   30U
-#define MQ135_CONFIRM_SAMPLES     5U
-#define MQ135_FAULT_SAMPLES       3U
-#define MQ135_RAW_VALID_MIN      64U
-#define MQ135_RAW_VALID_MAX   65471U
-#define MQ135_ALERT_INDEX       135.0f
-#define MQ135_CLEAR_INDEX       120.0f
-#define MQ135_FILTER_ALPHA        0.4f
-#define MQ135_BASELINE_ALPHA      0.001f
+#define MQ135_MIN_WARMUP_MS              60000U
+#define MQ135_STABILITY_SAMPLES             30U
+#define MQ135_STABLE_BLOCKS_REQUIRED          2U
+#define MQ135_STABILITY_SPREAD_PERCENT        8U
+#define MQ135_CONFIRM_SAMPLES                 5U
+#define MQ135_FAULT_SAMPLES                   3U
+#define MQ135_RAW_VALID_MIN                  64U
+#define MQ135_RAW_VALID_MAX               65471U
+#define MQ135_ALERT_INDEX                   135.0f
+#define MQ135_CLEAR_INDEX                   120.0f
+#define MQ135_FILTER_ALPHA                    0.4f
+#define MQ135_BASELINE_ALPHA                  0.001f
 
 static Mq135MonitorUpdate s_state;
 static uint32_t s_phase_started_ms;
 static uint64_t s_baseline_sum;
 static uint16_t s_baseline_count;
+static uint16_t s_baseline_min;
+static uint16_t s_baseline_max;
+static uint64_t s_stable_sum;
+static uint8_t s_stable_blocks;
+static uint32_t s_last_stable_mean;
 static uint8_t s_invalid_streak;
 static uint8_t s_valid_streak;
 static float s_filtered_raw;
 static float s_baseline_raw;
 
+static void ResetStabilityBlock(void)
+{
+  s_baseline_sum = 0;
+  s_baseline_count = 0;
+  s_baseline_min = UINT16_MAX;
+  s_baseline_max = 0;
+}
+
 static void StartWarmup(uint32_t now_ms)
 {
   memset(&s_state, 0, sizeof(s_state));
   s_state.phase = MQ135_PHASE_WARMUP;
-  s_state.warmup_remaining_ms = MQ135_WARMUP_MS;
+  s_state.warmup_remaining_ms = MQ135_MIN_WARMUP_MS;
   s_phase_started_ms = now_ms;
-  s_baseline_sum = 0;
-  s_baseline_count = 0;
+  ResetStabilityBlock();
+  s_stable_sum = 0;
+  s_stable_blocks = 0;
+  s_last_stable_mean = 0;
   s_filtered_raw = 0.0f;
   s_baseline_raw = 0.0f;
 }
@@ -90,25 +107,67 @@ Mq135MonitorUpdate Mq135Monitor_Update(bool sample_valid, uint16_t raw,
 
   if (s_state.phase == MQ135_PHASE_WARMUP) {
     uint32_t elapsed = now_ms - s_phase_started_ms;
-    if (elapsed < MQ135_WARMUP_MS) {
-      s_state.warmup_remaining_ms = MQ135_WARMUP_MS - elapsed;
+    if (elapsed < MQ135_MIN_WARMUP_MS) {
+      s_state.warmup_remaining_ms = MQ135_MIN_WARMUP_MS - elapsed;
       events = s_state;
       return events;
     }
     s_state.phase = MQ135_PHASE_BASELINE;
     s_state.warmup_remaining_ms = 0;
-    s_baseline_sum = 0;
-    s_baseline_count = 0;
+    ResetStabilityBlock();
   }
 
   if (s_state.phase == MQ135_PHASE_BASELINE) {
     s_baseline_sum += raw;
+    if (raw < s_baseline_min) s_baseline_min = raw;
+    if (raw > s_baseline_max) s_baseline_max = raw;
     s_baseline_count++;
-    if (s_baseline_count < MQ135_BASELINE_SAMPLES) {
+    if (s_baseline_count < MQ135_STABILITY_SAMPLES) {
       events = s_state;
       return events;
     }
-    s_baseline_raw = (float)s_baseline_sum / (float)s_baseline_count;
+
+    uint32_t mean = (uint32_t)(s_baseline_sum / s_baseline_count);
+    uint32_t spread = (uint32_t)s_baseline_max - s_baseline_min;
+    bool stable = (uint64_t)spread * 100U <=
+                  (uint64_t)mean * MQ135_STABILITY_SPREAD_PERCENT;
+    if (!stable) {
+      s_stable_sum = 0;
+      s_stable_blocks = 0;
+      s_last_stable_mean = 0;
+      ResetStabilityBlock();
+      events = s_state;
+      return events;
+    }
+
+    if (s_stable_blocks > 0U) {
+      uint32_t mean_delta = mean > s_last_stable_mean
+                                ? mean - s_last_stable_mean
+                                : s_last_stable_mean - mean;
+      bool consecutive_stable =
+          (uint64_t)mean_delta * 100U <=
+          (uint64_t)s_last_stable_mean * MQ135_STABILITY_SPREAD_PERCENT;
+      if (!consecutive_stable) {
+        s_stable_sum = s_baseline_sum;
+        s_stable_blocks = 1U;
+        s_last_stable_mean = mean;
+        ResetStabilityBlock();
+        events = s_state;
+        return events;
+      }
+    }
+
+    s_stable_sum += s_baseline_sum;
+    s_stable_blocks++;
+    s_last_stable_mean = mean;
+    ResetStabilityBlock();
+    if (s_stable_blocks < MQ135_STABLE_BLOCKS_REQUIRED) {
+      events = s_state;
+      return events;
+    }
+
+    s_baseline_raw = (float)s_stable_sum /
+                     (float)(MQ135_STABILITY_SAMPLES * s_stable_blocks);
     s_filtered_raw = s_baseline_raw;
     s_state.baseline = (uint16_t)(s_baseline_raw + 0.5f);
     s_state.index = 100.0f;

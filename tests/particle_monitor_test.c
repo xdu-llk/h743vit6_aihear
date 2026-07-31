@@ -8,7 +8,7 @@ int main(void)
   ParticleMonitorUpdate update = {0};
   ParticleMonitor_Init();
 
-  for (int i = 0; i < 9; i++) {
+  for (int i = 0; i < 13; i++) {
     update = ParticleMonitor_Update(true, 2000);
     assert(update.phase == PARTICLE_PHASE_BASELINE);
     assert(update.ready == 0U);
@@ -18,6 +18,14 @@ int main(void)
   assert(update.ready == 1U);
   assert(update.baseline == 2000U);
   assert(update.index > 99.9f && update.index < 100.1f);
+
+  /* Isolated ADC spikes must not advance the confirmed alert state. */
+  for (int i = 0; i < 15; i++) {
+    uint16_t raw = (i % 3 == 0) ? 6000U : 2000U;
+    update = ParticleMonitor_Update(true, raw);
+    assert(update.alert == 0U);
+    assert(update.confirm_count == 0U);
+  }
 
   uint8_t alerted = 0;
   for (int i = 0; i < 10; i++) {
