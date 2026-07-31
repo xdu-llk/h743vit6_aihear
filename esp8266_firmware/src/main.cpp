@@ -18,7 +18,7 @@ static ESP8266WebServer server(80);
 static char          rx_buf[448];
 static uint16_t      rx_idx = 0;
 static char ssid[33] = "", pass[33] = "";
-static char mqtt_client_id[32], alert_topic[64], status_topic[64], env_topic[64];
+static char mqtt_client_id[32], ap_ssid[32], alert_topic[64], status_topic[64], env_topic[64];
 static char snapshot_topic[64];
 static String last_alert = "";  /* HTTP alert state */
 static uint32_t last_alert_time = 0;
@@ -173,9 +173,11 @@ static void mqtt_reconnect() {
 void setup() {
   Serial.begin(115200);
   delay(2000);
+  pinMode(0,INPUT_PULLUP);
   EEPROM.begin(128);
   uint8_t mac[6]; WiFi.macAddress(mac);
   snprintf(mqtt_client_id,sizeof(mqtt_client_id),"aihear_%02x%02x%02x",mac[3],mac[4],mac[5]);
+  snprintf(ap_ssid,sizeof(ap_ssid),"AIHear_Setup_%02x%02x%02x",mac[3],mac[4],mac[5]);
   snprintf(alert_topic,sizeof(alert_topic),"aihear/v1/demo/%s/alert",mqtt_client_id);
   snprintf(status_topic,sizeof(status_topic),"aihear/v1/demo/%s/status",mqtt_client_id);
   snprintf(env_topic,   sizeof(env_topic),   "aihear/v1/demo/%s/env",   mqtt_client_id);
@@ -195,7 +197,7 @@ void setup() {
     Serial.println("+READY");
     Serial.println("+CONFIG:open_ap");
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("AIHear_Setup","12345678");
+    WiFi.softAP(ap_ssid,"12345678");
     server.on("/",handleRoot);
     server.on("/save",handleSave);
     server.on("/alert",handleAlert);
@@ -208,16 +210,21 @@ void setup() {
 void loop() {
   uint32_t now=millis();
 
-  /* GPIO0 long-press 5s = clear WiFi and restart to AP mode */
-  pinMode(0,INPUT_PULLUP);
+  /* GPIO0 is a boot strap pin. Restart only after release so the ESP boots
+     the application instead of entering the UART downloader. */
   static uint32_t gpio0_down=0;
+  static bool config_reset_pending=false;
   if(digitalRead(0)==LOW){
     if(!gpio0_down) gpio0_down=now;
-    else if(now-gpio0_down>5000){
+    else if(!config_reset_pending&&now-gpio0_down>5000){
       EEPROM.put(EE_OFF_MAGIC,(uint16_t)0); EEPROM.commit();
-      Serial.println("+CONFIG:reset_ap"); delay(500); ESP.restart();
+      Serial.println("+CONFIG:reset_ap");
+      config_reset_pending=true;
     }
-  } else gpio0_down=0;
+  } else {
+    gpio0_down=0;
+    if(config_reset_pending){delay(50);ESP.restart();}
+  }
   if(WiFi.status()==WL_CONNECTED&&WiFi.getMode()==WIFI_AP_STA){
     WiFi.softAPdisconnect(true);  /* stop AP once connected */
   }

@@ -27,6 +27,18 @@ void Audio_Init(void)
                       AUDIO_BUF_SIZE * 2);
 }
 
+bool Audio_Restart(void)
+{
+  (void)HAL_SAI_DMAStop(&hsai_BlockA3);
+  taskENTER_CRITICAL();
+  wr = 0;
+  sample_count = 0;
+  memset(ring, 0, sizeof(ring));
+  taskEXIT_CRITICAL();
+  return HAL_SAI_Receive_DMA(&hsai_BlockA3, (uint8_t *)dmabuf,
+                             AUDIO_BUF_SIZE * 2) == HAL_OK;
+}
+
 /* 从 32bit I2S 槽提取 24bit 有符号值
  * STM32 SAI DMA data is 24-bit RIGHT-aligned in DR[23:0]
  * Need to shift left 8 to put sign bit at bit31, then arithmetic right shift */

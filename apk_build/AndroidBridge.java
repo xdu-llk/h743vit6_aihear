@@ -6,14 +6,26 @@ import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.util.Log;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class AndroidBridge {
 
     private final WeakReference<Activity> activityRef;
     private final WebView webView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
+    private volatile boolean destroyed;
 
     public AndroidBridge(Activity activity, WebView wv) {
         this.activityRef = new WeakReference<>(activity);
@@ -375,6 +387,112 @@ public class AndroidBridge {
             db.close();
             return json;
         } catch (Exception e) { return "[]"; }
+    }
+
+    // ─── AI分析（原生HTTPS，避免file:// WebView跨域限制） ───
+
+    @JavascriptInterface
+    public boolean requestAiAnalysis(String apiKey, String prompt) {
+        String key = apiKey == null ? "" : apiKey.trim();
+        String input = prompt == null ? "" : prompt.trim();
+        if (destroyed || key.length() < 8 || key.length() > 256 ||
+            input.isEmpty() || input.length() > 32_000) return false;
+        try {
+            networkExecutor.execute(() -> performAiRequest(key, input));
+            return true;
+        } catch (RejectedExecutionException e) {
+            return false;
+        }
+    }
+
+    private void performAiRequest(String apiKey, String prompt) {
+        HttpsURLConnection connection = null;
+        try {
+            JSONObject message = new JSONObject();
+            message.put("role", "user");
+            message.put("content", prompt);
+            JSONArray messages = new JSONArray();
+            messages.put(message);
+            JSONObject request = new JSONObject();
+            request.put("model", "deepseek-chat");
+            request.put("messages", messages);
+            request.put("max_tokens", 500);
+            request.put("temperature", 0.5);
+            byte[] body = request.toString().getBytes(StandardCharsets.UTF_8);
+
+            connection = (HttpsURLConnection)new URL(
+                "https://api.deepseek.com/v1/chat/completions").openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(45_000);
+            connection.setDoOutput(true);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            connection.setRequestProperty("User-Agent", "AI-Hear-Android/1.0");
+            connection.setFixedLengthStreamingMode(body.length);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(body);
+            }
+
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300
+                ? connection.getInputStream() : connection.getErrorStream();
+            String response = readUtf8(stream, 64 * 1024);
+            if (status < 200 || status >= 300) {
+                String detail = "HTTP " + status;
+                try {
+                    JSONObject error = new JSONObject(response).optJSONObject("error");
+                    String messageText = error == null ? "" : error.optString("message", "");
+                    if (!messageText.isEmpty()) detail += "：" + messageText;
+                } catch (Exception ignored) {}
+                deliverAiResult(false, detail);
+                return;
+            }
+            JSONObject result = new JSONObject(response);
+            JSONArray choices = result.optJSONArray("choices");
+            JSONObject choice = choices != null && choices.length() > 0
+                ? choices.optJSONObject(0) : null;
+            JSONObject responseMessage = choice == null ? null : choice.optJSONObject("message");
+            String content = responseMessage == null ? "" : responseMessage.optString("content", "");
+            if (content.trim().isEmpty()) throw new IllegalStateException("未获得分析结果");
+            deliverAiResult(true, content.trim());
+        } catch (Exception e) {
+            Log.w("AIBridge", "AI request failed: " + e.getMessage());
+            deliverAiResult(false, e.getMessage() == null ? "网络请求失败" : e.getMessage());
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private static String readUtf8(InputStream stream, int maxBytes) throws Exception {
+        if (stream == null) return "";
+        try (InputStream input = stream;
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int total = 0;
+            for (int count; (count = input.read(buffer)) != -1;) {
+                total += count;
+                if (total > maxBytes) throw new IllegalStateException("服务响应过大");
+                output.write(buffer, 0, count);
+            }
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void deliverAiResult(boolean success, String text) {
+        mainHandler.post(() -> {
+            if (destroyed || getActivity() == null) return;
+            String js = "if(typeof onAiAnalysisResult==='function')onAiAnalysisResult(" +
+                (success ? "true" : "false") + "," + JSONObject.quote(text) + ");";
+            webView.evaluateJavascript(js, null);
+        });
+    }
+
+    void destroy() {
+        destroyed = true;
+        networkExecutor.shutdownNow();
+        mainHandler.removeCallbacksAndMessages(null);
     }
 
     // ─── 错误提示 ───

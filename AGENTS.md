@@ -8,23 +8,23 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 阶段2.5最终软件已烧录并通过基础实板稳定性检查 | OV2640/TFT缺席可快速降级；任务栈最低余量14200B、heap最低余量14384B、UART溢出0；真实画面待模块验证 |
-| ESP8266 | bridge-v5构建通过；两台v4实板隔离通过 | 精确设备ID匹配、定向控制与状态回传已实测；两台设备仍需分别烧录v5后验证真实照片定向topic |
-| Android App | ✅ 照片版构建与桥接回归通过 | 4Tab、多设备定向控制、JPEG分片重组/CRC校验、照片显示和失败状态；APK v2/v3签名有效 |
-| TFT | 驱动已随固件烧录/待屏幕验证 | ST7789 240x240，30MHz SPI4，局部刷新；当前未连接屏幕也不阻塞系统 |
+| STM32 固件 | 最终候选版构建通过/待烧录 | DISPLAY/CAMERA均冻结为厂家FPC；音频DMA自恢复、环境链路、TFT和有界抓拍已合入 |
+| ESP8266 | bridge-v5最终候选构建通过；两台v4实板隔离通过 | 精确设备隔离、设备级照片topic、GPIO0安全配网；两台仍需分别烧录v5 |
+| Android App | ✅ 最终候选APK与桥接回归通过 | 4Tab、多设备控制、JPEG/CRC校验、原生DeepSeek HTTPS、抓拍等待态；v2/v3签名有效 |
+| TFT | 原生DISPLAY FPC固件完成/待实物验证 | PE11/PE12/PE14/PE15/PD15；无硬件RES，增加软件复位；通用8针屏此前实板通过 |
 | OV2640 | 驱动与有界抓拍流程完成/待实物验证 | 240x240 RGB565本地显示、320x240 JPEG、60KB上限、15秒上传上限；缺席不影响告警优先发送 |
 | 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
-| PCB+外壳 | 工程布局方案完成 | `output/`含载板和外壳尺寸布局图；Gerber/STL须按实物1:1测量后完成 |
+| PCB+外壳 | 用户按实物自行收口 | FPC不经过载板；软件侧只维护最终引脚、供电和布置约束 |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
 
 ## 待处理
 
-1. TFT到货后只连接TFT，验证方向、颜色、状态变化和温湿度2s刷新；日志中的`TFT ready`只代表写流程完成，不能证明像素已显示
+1. 烧录最终H7固件后连接原厂FPC TFT，验证方向、颜色、状态变化和温湿度2秒刷新
 2. OV2640到货后验证SCCB ID、RGB方向/字节序、补光、JPEG大小与抓拍耗时，再联调TFT显示
 3. 两台ESP分别烧录bridge-v5并安装最新APK，完成真实照片的设备隔离、分片上传和App显示验证
 4. 全部模块装齐后连续运行30-60分钟，并继续累计STM32/ESP8266单独复位后的PA2自动恢复测试
 5. 焊接GP2Y适配板排针后复测长期稳定性；真实烟尘与气体刺激暂不作为当前阻塞项
-6. 按实物卡尺尺寸和1:1纸样把`output/`工程图落实为EDA Gerber与外壳STL
+6. 按实物卡尺尺寸和1:1纸样自行完成EDA Gerber与外壳STL，确保两组FPC可插拔且不急弯
 7. MQ-135 AO直连PA3存在高浓度时超过H7 ADC 3.3V范围的已知演示风险
 8. 国赛阶段保持二分类，多分类不进入当前关键路径
 
@@ -52,13 +52,13 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 |------|------|----------|
 | `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG |
 | `Core/Src/freertos.c` | 主任务调度 | 幅度门控、概率分级、真实200ms时序复核、30秒栈/heap健康日志 |
-| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码 |
+| `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码；3秒无进度自动重启DMA，主任务不再无限等待通知 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
-| `Core/Src/camera.c` | OV2640事件抓拍 | 软件SCCB、DCMI+DMA2、有界RGB/JPEG采集、缺席快速降级 |
+| `Core/Src/camera.c` | OV2640事件抓拍 | 软件SCCB、DCMI+DMA2、有界RGB/JPEG采集、超时后DMA恢复、缺席快速降级 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动6状态，含独立ENV_ALERT无蜂鸣状态 |
-| `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，通道切换后丢弃首样本、16次均值、60秒最低预热+动态稳定基线、EMA、5次确认、回差恢复；只显示相对指数 |
+| `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，通道切换后丢弃首样本、16次均值、120秒预热+60样本稳健动态基线（约179秒就绪）、EMA、5次确认、回差恢复；只显示相对指数 |
 | `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，每秒9个厂家时序脉冲取中值，再做5点跨秒中值、10点基线、EMA、5次确认与回差恢复；只显示相对指数 |
 | `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
@@ -90,14 +90,14 @@ prob_cry < 75% → NORMAL
 | `esp8266_firmware/platformio.ini` | PlatformIO配置(ESP01_1M) |
 
 ### 技术要点
-- **双模式**: AP配网(`AIHear_Setup`热点+网页配网) / STA连接+MQTT
+- **双模式**: AP配网(`AIHear_Setup_XXXXXX`热点+网页配网) / STA连接+MQTT；后缀为设备ID的MAC部分
 - **UART协议**: `+PUB:topic:payload` 文本协议，115200 baud
 - **MQTT Broker**: `broker-cn.emqx.io:1883` (与Android/Flask统一)
 - **发布语义**: PubSubClient QoS 0；失败时本地重试一次，不宣称Broker确认
 - **设备ID**: 每台ESP按MAC后三字节生成唯一ID；当前两台为`aihear_03cb03`和`aihear_876f07`
 - **告警链路**: STM32通过UART发内部`aihear/alert`消息 → ESP转换并发布设备级`aihear/v1/demo/{id}/alert` → Android通知+震动
 - **抓拍链路(v5)**: `captureId|seq|total|crc32|base64` 分片发布到设备级`/snapshot`；QoS 0，本地发布确认不等于Broker确认
-- **GPIO0长按5秒**: 清除WiFi凭据，恢复AP配网模式
+- **GPIO0长按5秒**: 清除WiFi凭据，松开按键后重启并恢复AP配网模式
 
 ---
 
@@ -119,9 +119,9 @@ AlertDbHelper.java (SQLite: alerts + feeding + env_hourly)
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1、WakeLock、告警去重、最多60KB JPEG分片重组与CRC32校验 |
+| `MqttService.java` | MQTT后台服务 | TCP Socket MQTT 3.1.1、WakeLock、告警去重、最多60KB JPEG分片重组与CRC32校验；环境实时缓存、30秒聚合落盘 |
 | `AlertDbHelper.java` | SQLite持久化 | 告警、喂养、小时环境聚合三表+索引 |
-| `AndroidBridge.java` | JS桥接 | WeakReference防泄漏、try-catch全包裹、双向通信 |
+| `AndroidBridge.java` | JS桥接 | WeakReference防泄漏、双向通信、DeepSeek原生异步HTTPS及生命周期清理 |
 | `MainActivity.java` | Activity容器 | 全屏沉浸、通知权限适配、WebView安全配置 |
 | `assets/index.html` | 前端UI | 4Tab底部导航、系统通知告警、DeepSeek AI分析、设备绑定 |
 
@@ -192,7 +192,7 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 | DHT11 | PE7(DATA/H2-21) | single-wire, 3.3V |
 | RGB LED | PB4(R/H3-23) PB5(G/H3-24) PB3(B/H3-22) | 共阴模块，板载限流电阻；三路相邻 |
 | 蜂鸣器 | PB0 (H2-23, TIM3 PWM) | OCPOLARITY_LOW |
-| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY 10P FPC，3.3V，无RES/MISO |
+| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板DISPLAY FPC；无RES/MISO |
 | MQ-135 | PA3(AO/H2-32) | ADC12_INP15，DO不接；直连存在超过3.3V风险 |
 | GP2Y1010 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲 |
 | 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位H7；KEY2长按配网 |

@@ -35,6 +35,7 @@ static uint8_t jpeg_buffer[CAMERA_JPEG_MAX_BYTES];
 static volatile bool frame_done;
 static volatile bool frame_error;
 static volatile uint32_t frame_bytes;
+static volatile uint32_t capture_capacity_words;
 static bool camera_available;
 static uint16_t sensor_id;
 
@@ -305,11 +306,20 @@ static bool capture_dma(uint8_t *buffer, uint32_t capacity,
   frame_done = false;
   frame_error = false;
   frame_bytes = 0;
+  capture_capacity_words = capacity / 4U;
   memset(buffer, 0, capacity);
   SCB_CleanInvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
-  if (HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT,
-                         (uint32_t)buffer, capacity / 4U) != HAL_OK) return false;
+
+  __HAL_DCMI_DISABLE_IT(&hdcmi, DCMI_IT_FRAME);
+  __HAL_DCMI_CLEAR_FLAG(&hdcmi, DCMI_FLAG_FRAMERI | DCMI_FLAG_OVRRI |
+                        DCMI_FLAG_ERRRI | DCMI_FLAG_VSYNCRI | DCMI_FLAG_LINERI);
   if (variable_length) __HAL_DCMI_ENABLE_IT(&hdcmi, DCMI_IT_FRAME);
+  if (HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_SNAPSHOT,
+                         (uint32_t)buffer, capture_capacity_words) != HAL_OK) {
+    __HAL_DCMI_DISABLE_IT(&hdcmi, DCMI_IT_FRAME);
+    HAL_DCMI_Stop(&hdcmi);
+    return false;
+  }
 
   uint32_t started = HAL_GetTick();
   while (!frame_done && !frame_error && (HAL_GetTick() - started) < timeout_ms) {
@@ -317,11 +327,12 @@ static bool capture_dma(uint8_t *buffer, uint32_t capacity,
     if (service) service();
     HAL_Delay(1);
   }
-  if (!frame_done || frame_error) {
-    HAL_DCMI_Stop(&hdcmi);
-    return false;
-  }
+  bool ok = frame_done && !frame_error;
+  __HAL_DCMI_DISABLE_IT(&hdcmi, DCMI_IT_FRAME);
   HAL_DCMI_Stop(&hdcmi);
+  __HAL_DCMI_CLEAR_FLAG(&hdcmi, DCMI_FLAG_FRAMERI | DCMI_FLAG_OVRRI |
+                        DCMI_FLAG_ERRRI | DCMI_FLAG_VSYNCRI | DCMI_FLAG_LINERI);
+  if (!ok) return false;
   if (!variable_length) frame_bytes = capacity;
   SCB_InvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
   return true;
@@ -427,8 +438,9 @@ const char *Camera_ResultName(CameraCaptureResult result)
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *handle)
 {
   if (handle->Instance != DCMI) return;
-  frame_bytes = (CAMERA_JPEG_MAX_BYTES / 4U -
-                 __HAL_DMA_GET_COUNTER(&hdma_dcmi)) * 4U;
+  uint32_t remaining = __HAL_DMA_GET_COUNTER(&hdma_dcmi);
+  frame_bytes = remaining <= capture_capacity_words
+      ? (capture_capacity_words - remaining) * 4U : 0U;
   frame_done = true;
 }
 

@@ -97,6 +97,7 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+  uint32_t reset_flags = RCC->RSR;
 
   /* USER CODE BEGIN Init */
 
@@ -137,6 +138,14 @@ int main(void)
   }
   Buzzer_Init();
   Serial_Init();
+  printf("[BOOT] reset=0x%08lX%s%s%s%s%s\r\n",
+         (unsigned long)reset_flags,
+         (reset_flags & RCC_RSR_PORRSTF) ? " POR" : "",
+         (reset_flags & RCC_RSR_BORRSTF) ? " BOR" : "",
+         (reset_flags & RCC_RSR_PINRSTF) ? " PIN" : "",
+         (reset_flags & RCC_RSR_SFTRSTF) ? " SOFTWARE" : "",
+         (reset_flags & RCC_RSR_IWDG1RSTF) ? " IWDG1" : "");
+  __HAL_RCC_CLEAR_RESET_FLAGS();
   Audio_Init();
   Alarm_Init();
   RGB_Init();

@@ -172,6 +172,7 @@ function mockBridgeSource(dataUrl) {
           return true;
         },
         startService: () => true,
+        requestAiAnalysis: () => true,
         stopService: () => true,
         stopAlarm: () => true,
         setMonitoredDevice: () => true,
@@ -275,7 +276,7 @@ async function main() {
   })()`);
   const successShot = await screenshot("ui-qa-photo.png");
 
-  await evaluate(`requestSnapshot()`);
+  await evaluate(`requestSnapshot(); pollSnapshot()`);
   const requestState = await evaluate(`({
     imageVisible: document.querySelector('#snapshotCard').classList.contains('has-image'),
     request: window.__bridgePublished.at(-1)

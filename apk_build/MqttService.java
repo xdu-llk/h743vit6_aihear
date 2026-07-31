@@ -118,6 +118,7 @@ public class MqttService extends Service {
     // ── env hourly aggregation (background-thread aggregation, main-thread write) ──
     private static final ConcurrentHashMap<String, EnvAggregate> sEnvAggregates =
         new ConcurrentHashMap<>();
+    private static final long ENV_PERSIST_INTERVAL_MS = 30_000L;
 
     private static class EnvAggregate {
         long hourTs;
@@ -128,6 +129,7 @@ public class MqttService extends Service {
         int samples;
         int pmSamples;
         int gasSamples;
+        long lastPersistMs;
     }
 
     // ── 对外可读状态 ──
@@ -403,7 +405,7 @@ public class MqttService extends Service {
                                         handleAlert(legacyAlertDevice, pub.topic, pub.payload);
                                     } else if (envDevice != null && DeviceRegistry.contains(this, envDevice)) {
                                         sDeviceLastSeen.put(envDevice, System.currentTimeMillis());
-                                        // hourly aggregation — upsert to SQLite every sample
+                                        // Keep live values in memory; persist hourly aggregates at a bounded rate.
                                         try {
                                             JSONObject envJson = new JSONObject(pub.payload);
                                             String previous = sDeviceEnv.get(envDevice);
@@ -445,32 +447,37 @@ public class MqttService extends Service {
                                                     agg.gasSum += gas; if (gas > agg.gasMax) agg.gasMax = gas; if (gas < agg.gasMin) agg.gasMin = gas;
                                                     agg.gasSamples++;
                                                 }
-                                                // Copy values before posting because the MQTT thread keeps mutating agg.
-                                                final String dev = envDevice;
-                                                final long savedHour = agg.hourTs;
-                                                final int thCount = agg.samples;
-                                                final int pmCount = agg.pmSamples;
-                                                final int gasCount = agg.gasSamples;
-                                                final double tempAvg = thCount > 0 ? agg.tempSum / thCount : Double.NaN;
-                                                final double tempMax = thCount > 0 ? agg.tempMax : Double.NaN;
-                                                final double tempMin = thCount > 0 ? agg.tempMin : Double.NaN;
-                                                final double humiAvg = thCount > 0 ? agg.humiSum / thCount : Double.NaN;
-                                                final double humiMax = thCount > 0 ? agg.humiMax : Double.NaN;
-                                                final double humiMin = thCount > 0 ? agg.humiMin : Double.NaN;
-                                                final double pmAvg = pmCount > 0 ? agg.pmSum / pmCount : Double.NaN;
-                                                final double pmMax = pmCount > 0 ? agg.pmMax : Double.NaN;
-                                                final double pmMin = pmCount > 0 ? agg.pmMin : Double.NaN;
-                                                final double gasAvg = gasCount > 0 ? agg.gasSum / gasCount : Double.NaN;
-                                                final double gasMax = gasCount > 0 ? agg.gasMax : Double.NaN;
-                                                final double gasMin = gasCount > 0 ? agg.gasMin : Double.NaN;
-                                                mainHandler.post(() -> {
-                                                    if (db != null)
-                                                        db.upsertEnvHourly(dev, savedHour,
-                                                            tempAvg, tempMax, tempMin,
-                                                            humiAvg, humiMax, humiMin, thCount,
-                                                            pmAvg, pmMax, pmMin, pmCount,
-                                                            gasAvg, gasMax, gasMin, gasCount);
-                                                });
+                                                boolean shouldPersist = agg.lastPersistMs == 0L ||
+                                                    envNow - agg.lastPersistMs >= ENV_PERSIST_INTERVAL_MS;
+                                                if (shouldPersist) {
+                                                    agg.lastPersistMs = envNow;
+                                                    // Copy values before posting because the MQTT thread keeps mutating agg.
+                                                    final String dev = envDevice;
+                                                    final long savedHour = agg.hourTs;
+                                                    final int thCount = agg.samples;
+                                                    final int pmCount = agg.pmSamples;
+                                                    final int gasCount = agg.gasSamples;
+                                                    final double tempAvg = thCount > 0 ? agg.tempSum / thCount : Double.NaN;
+                                                    final double tempMax = thCount > 0 ? agg.tempMax : Double.NaN;
+                                                    final double tempMin = thCount > 0 ? agg.tempMin : Double.NaN;
+                                                    final double humiAvg = thCount > 0 ? agg.humiSum / thCount : Double.NaN;
+                                                    final double humiMax = thCount > 0 ? agg.humiMax : Double.NaN;
+                                                    final double humiMin = thCount > 0 ? agg.humiMin : Double.NaN;
+                                                    final double pmAvg = pmCount > 0 ? agg.pmSum / pmCount : Double.NaN;
+                                                    final double pmMax = pmCount > 0 ? agg.pmMax : Double.NaN;
+                                                    final double pmMin = pmCount > 0 ? agg.pmMin : Double.NaN;
+                                                    final double gasAvg = gasCount > 0 ? agg.gasSum / gasCount : Double.NaN;
+                                                    final double gasMax = gasCount > 0 ? agg.gasMax : Double.NaN;
+                                                    final double gasMin = gasCount > 0 ? agg.gasMin : Double.NaN;
+                                                    mainHandler.post(() -> {
+                                                        if (db != null)
+                                                            db.upsertEnvHourly(dev, savedHour,
+                                                                tempAvg, tempMax, tempMin,
+                                                                humiAvg, humiMax, humiMin, thCount,
+                                                                pmAvg, pmMax, pmMin, pmCount,
+                                                                gasAvg, gasMax, gasMin, gasCount);
+                                                    });
+                                                }
                                             }
                                         } catch (Exception ignored) {}
                                     } else if (snapshotDevice != null &&
@@ -948,6 +955,7 @@ public class MqttService extends Service {
                     status.put("status", "error");
                     status.put("reason", statusFields[2]);
                     sDeviceSnapshots.put(deviceId, status.toString());
+                    snapshotAssemblies.remove(deviceId);
                 }
                 return;
             }

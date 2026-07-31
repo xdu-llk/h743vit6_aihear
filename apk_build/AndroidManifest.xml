@@ -17,7 +17,7 @@
     <application
         android:label="AI Hear"
         android:usesCleartextTraffic="true"
-        android:allowBackup="true">
+        android:allowBackup="false">
 
         <service
             android:name="com.aihear.app.MqttService"

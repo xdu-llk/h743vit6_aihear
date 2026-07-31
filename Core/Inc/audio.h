@@ -8,6 +8,7 @@
 #define AUDIO_WINDOW_SAMPLES 15712  // 512 + (96 - 1) * 160
 
 void     Audio_Init(void);
+bool     Audio_Restart(void);
 uint32_t Audio_GetPeak(void);
 float    Audio_GetDBFS(void);
 int      Audio_ReadSamples(int32_t *dst, int offset, int count);

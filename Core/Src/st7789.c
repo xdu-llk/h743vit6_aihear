@@ -93,6 +93,7 @@ static const uint8_t *FindGlyph(char ch)
 
 bool ST7789_Init(void)
 {
+  s_ready = false;
   GPIO_InitTypeDef gpio = {0};
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -101,14 +102,18 @@ bool ST7789_Init(void)
   HAL_GPIO_WritePin(LCD_DC_PORT, LCD_DC_PIN, GPIO_PIN_SET);
   HAL_GPIO_WritePin(LCD_BL_PORT, LCD_BL_PIN, GPIO_PIN_RESET);
 
-  gpio.Pin = LCD_CS_PIN | LCD_DC_PIN;
+  gpio.Pin = LCD_CS_PIN;
   gpio.Mode = GPIO_MODE_OUTPUT_PP;
   gpio.Pull = GPIO_NOPULL;
   gpio.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOE, &gpio);
+
+  gpio.Pin = LCD_DC_PIN;
+  HAL_GPIO_Init(LCD_DC_PORT, &gpio);
+
   gpio.Pin = LCD_BL_PIN;
   gpio.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &gpio);
+  HAL_GPIO_Init(LCD_BL_PORT, &gpio);
 
   HAL_Delay(10);
   static const uint8_t madctl[] = {0x00};
@@ -127,7 +132,11 @@ bool ST7789_Init(void)
   static const uint8_t gamma_neg[] = {
     0xd0,0x04,0x0c,0x11,0x13,0x2c,0x3f,0x44,0x51,0x2f,0x1f,0x1f,0x20,0x23};
 
-  bool ok = WriteCommandData(0x36, madctl, sizeof(madctl)) &&
+  bool ok = WriteCommandData(0x01, NULL, 0);
+  if (!ok) return false;
+  HAL_Delay(120);
+
+  ok = WriteCommandData(0x36, madctl, sizeof(madctl)) &&
             WriteCommandData(0x3a, colmod, sizeof(colmod)) &&
             WriteCommandData(0xb2, porch, sizeof(porch)) &&
             WriteCommandData(0xb7, gate, sizeof(gate)) &&

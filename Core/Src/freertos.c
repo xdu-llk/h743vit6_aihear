@@ -302,14 +302,35 @@ static void vAudioInferTask(void *pvParameters)
   uint8_t last_published_music = 0xff;
   uint8_t control_state_dirty = 1;
   const char *last_env_ui_name = NULL;
+  uint32_t last_audio_progress = Audio_GetSampleCount();
+  uint8_t audio_stall_seconds = 0;
 
   vTaskDelay(pdMS_TO_TICKS(1200));
 
   Alarm_SetState(ALARM_STATE_ARMED);  /* boot into armed state — green blink */
 
   for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
     uint8_t automatic_capture_requested = 0;
+
+    if (notified == 0U) {
+      uint32_t progress = Audio_GetSampleCount();
+      if (progress == last_audio_progress) {
+        if (audio_stall_seconds < UINT8_MAX) audio_stall_seconds++;
+      } else {
+        audio_stall_seconds = 0;
+      }
+      last_audio_progress = progress;
+      if (audio_stall_seconds >= 3U) {
+        bool restarted = Audio_Restart();
+        printf("[AUDIO] DMA stalled; restart %s\r\n",
+               restarted ? "OK" : "FAILED");
+        audio_stall_seconds = 0;
+      }
+    } else {
+      last_audio_progress = Audio_GetSampleCount();
+      audio_stall_seconds = 0;
+    }
 
     /* Feed IWDG at most every 3s — not every loop (~16ms) */
     {

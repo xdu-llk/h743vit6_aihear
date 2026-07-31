@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
                 // 页面加载完成后，延迟自动恢复（等权限对话框消失）
                 view.evaluateJavascript(
                     "setTimeout(function(){" +
-                    "if(localStorage.getItem('started')==='1')startSvc();" +
+                    "if(localStorage.getItem('started')==='1')startService();" +
                     "},1000);", v -> {});
             }
         });
@@ -116,6 +116,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (bridge != null) {
+            bridge.destroy();
+            bridge = null;
+        }
         if (webView != null) {
             webView.removeJavascriptInterface("Android");
             webView.clearHistory();
