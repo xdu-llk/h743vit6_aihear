@@ -13,6 +13,7 @@
 #include "wifi_iot.h"
 #include "dht11.h"
 #include "tft_ui.h"
+#include "env_monitor.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -112,6 +113,17 @@ static bool EnvAlertReady(TickType_t now, TickType_t last_alert)
          (now - last_alert) >= pdMS_TO_TICKS(ENV_ALERT_COOLDOWN_MS);
 }
 
+static const char *EnvValueState(uint8_t active_mask,
+                                 EnvCondition high_condition,
+                                 EnvCondition low_condition)
+{
+  if ((active_mask & (uint8_t)(1U << (uint8_t)high_condition)) != 0U)
+    return "high";
+  if ((active_mask & (uint8_t)(1U << (uint8_t)low_condition)) != 0U)
+    return "low";
+  return "normal";
+}
+
 static void vAudioInferTask(void *pvParameters)
 {
   (void)pvParameters;
@@ -120,12 +132,8 @@ static void vAudioInferTask(void *pvParameters)
   TickType_t last_env_read = xTaskGetTickCount();
   TickType_t last_control_publish = 0;
   TickType_t alert_until = 0;
-  TickType_t env_alert_until = 0;
   /* 4 independent env alert cooldowns — 5 min each */
-  TickType_t env_cooldown_temp_high = 0;
-  TickType_t env_cooldown_temp_low  = 0;
-  TickType_t env_cooldown_humi_high = 0;
-  TickType_t env_cooldown_humi_low  = 0;
+  TickType_t env_cooldown[ENV_CONDITION_COUNT] = {0};
   uint8_t armed = 1;
   uint8_t last_published_armed = 0xff;
   uint8_t last_published_music = 0xff;
@@ -299,54 +307,88 @@ static void vAudioInferTask(void *pvParameters)
     if ((xTaskGetTickCount() - last_env_read) >= pdMS_TO_TICKS(ENV_READ_PERIOD_MS)) {
       last_env_read = xTaskGetTickCount();
       float temp_c = 0.0f, humi_pct = 0.0f;
-      if (DHT11_Read(&temp_c, &humi_pct)) {
+      bool dht_read_ok = DHT11_Read(&temp_c, &humi_pct);
+      EnvMonitorUpdate env_update =
+          EnvMonitor_UpdateDht(dht_read_ok, temp_c, humi_pct);
+
+      if (env_update.sample_accepted) {
         Ui_SetEnvironment(temp_c, humi_pct, 1);
         const char *devid = WifiIoT_GetDeviceId();
-        char payload[128];
+        char payload[192];
         snprintf(payload, sizeof(payload),
-                 "{\"deviceId\":\"%s\",\"temp\":%.1f,\"humi\":%.1f,\"uptimeMs\":%lu}",
+                 "{\"deviceId\":\"%s\",\"temp\":%.1f,\"humi\":%.1f,"
+                 "\"tempState\":\"%s\",\"humiState\":\"%s\","
+                 "\"dhtValid\":true,\"activeMask\":%u,\"uptimeMs\":%lu}",
                  devid ? devid : "", (double)temp_c, (double)humi_pct,
+                 EnvValueState(env_update.active_mask,
+                               ENV_CONDITION_TEMP_HIGH,
+                               ENV_CONDITION_TEMP_LOW),
+                 EnvValueState(env_update.active_mask,
+                               ENV_CONDITION_HUMI_HIGH,
+                               ENV_CONDITION_HUMI_LOW),
+                 (unsigned)env_update.active_mask,
                  (unsigned long)HAL_GetTick());
         WifiIoT_Publish("aihear/env", payload);
 
-        /* ── Environment threshold alerts (armed only) ── */
-        if (armed && WifiIoT_IsReady()) {
-          TickType_t now = xTaskGetTickCount();
-          const char *env_alert = NULL;
-
-          if (temp_c > 30.0f && EnvAlertReady(now, env_cooldown_temp_high))
-            { env_alert = "temp_high"; env_cooldown_temp_high = now; }
-          else if (temp_c < 16.0f && EnvAlertReady(now, env_cooldown_temp_low))
-            { env_alert = "temp_low"; env_cooldown_temp_low = now; }
-          else if (humi_pct > 80.0f && EnvAlertReady(now, env_cooldown_humi_high))
-            { env_alert = "humi_high"; env_cooldown_humi_high = now; }
-          else if (humi_pct < 30.0f && EnvAlertReady(now, env_cooldown_humi_low))
-            { env_alert = "humi_low"; env_cooldown_humi_low = now; }
-
-          if (env_alert) {
-            printf("\r\n[ENV] %s t=%.1f h=%.1f\r\n", env_alert, (double)temp_c, (double)humi_pct);
-            Ui_ShowStatus("ALERT!", env_alert, dbfs);
-            /* cry alert has priority — don't overwrite */
-            if (Alarm_GetState() != ALARM_STATE_ALERT) {
-              Alarm_SetState(ALARM_STATE_ENV_ALERT);
-              env_alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
-            }
-            WifiIoT_Publish("aihear/alert", env_alert);
+        TickType_t now = xTaskGetTickCount();
+        for (EnvCondition condition = ENV_CONDITION_TEMP_HIGH;
+             condition < ENV_CONDITION_COUNT; condition++) {
+          uint8_t bit = (uint8_t)(1U << (uint8_t)condition);
+          if ((env_update.newly_active_mask & bit) != 0U ||
+              ((env_update.active_mask & bit) != 0U &&
+               EnvAlertReady(now, env_cooldown[condition]))) {
+            const char *name = EnvMonitor_GetConditionName(condition);
+            env_cooldown[condition] = now;
+            printf("\r\n[ENV] confirmed %s t=%.1f h=%.1f\r\n",
+                   name, (double)temp_c, (double)humi_pct);
+            WifiIoT_Publish("aihear/alert", name);
+          }
+          if ((env_update.newly_recovered_mask & bit) != 0U) {
+            const char *name = EnvMonitor_GetConditionName(condition);
+            char recovery_name[32];
+            snprintf(recovery_name, sizeof(recovery_name), "%s_recovered", name);
+            printf("\r\n[ENV] recovered %s t=%.1f h=%.1f\r\n", name,
+                   (double)temp_c, (double)humi_pct);
+            WifiIoT_Publish("aihear/alert", recovery_name);
           }
         }
       } else {
-        Ui_SetEnvironment(0.0f, 0.0f, 0);
-        printf("[DHT11] failed: %s bit=%d\r\n",
-               DHT11_GetLastError(), DHT11_GetLastErrorBit());
+        if (env_update.dht_fault) {
+          Ui_SetEnvironment(0.0f, 0.0f, 0);
+          const char *devid = WifiIoT_GetDeviceId();
+          char payload[128];
+          snprintf(payload, sizeof(payload),
+                   "{\"deviceId\":\"%s\",\"dhtValid\":false,"
+                   "\"dhtFault\":true,\"uptimeMs\":%lu}",
+                   devid ? devid : "", (unsigned long)HAL_GetTick());
+          WifiIoT_Publish("aihear/env", payload);
+        }
+        if (!dht_read_ok) {
+          printf("[DHT11] failed %u/3: %s bit=%d\r\n",
+                 (unsigned)env_update.invalid_streak,
+                 DHT11_GetLastError(), DHT11_GetLastErrorBit());
+        }
+      }
+
+      if (env_update.fault_entered) {
+        printf("[DHT11] sensor fault confirmed\r\n");
+      } else if (env_update.fault_recovered) {
+        printf("[DHT11] sensor recovered after 3 valid samples\r\n");
       }
     }
 
     {
       AlarmState st = Alarm_GetState();
-      if (st == ALARM_STATE_ALERT && xTaskGetTickCount() > alert_until)
+      uint8_t env_active = EnvMonitor_GetActiveMask() != 0U;
+      if (st == ALARM_STATE_ALERT && xTaskGetTickCount() > alert_until) {
+        Alarm_SetState(env_active ? ALARM_STATE_ENV_ALERT :
+                       (armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE));
+      } else if (st != ALARM_STATE_ALERT && env_active) {
+        Alarm_SetState(ALARM_STATE_ENV_ALERT);
+        Ui_ShowStatus("ENV ALERT", EnvMonitor_GetFirstActiveName(), dbfs);
+      } else if (st == ALARM_STATE_ENV_ALERT && !env_active) {
         Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
-      if (st == ALARM_STATE_ENV_ALERT && xTaskGetTickCount() > env_alert_until)
-        Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+      }
     }
 
     {
@@ -386,6 +428,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
 
 void FreeRTOS_Init(void) {
   DHT11_Init();
+  EnvMonitor_Init();
   Ui_ShowStatus("BOOTING..", NULL, NAN);
   BaseType_t ret;
   ret = xTaskCreate(vAudioInferTask, "AudioInfer", 4096, NULL, 3, &hAudioTask);

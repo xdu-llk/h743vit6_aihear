@@ -7,6 +7,8 @@
 #define LINE_BUF_SIZE 256
 #define STATUS_TIMEOUT_MS  15000   /* mark offline if no +STATUS for 15 s */
 #define PENDING_QUEUE_SIZE 8       /* max stored alerts/status when link is down */
+#define PENDING_PAYLOAD_SIZE 192
+#define PUBLISH_CMD_SIZE 320
 #define ESP_RESET_DEADLINE_MS 20000 /* hard-reset ESP after 20 s of no STATUS */
 #define ESP_MAX_RESETS  3          /* max hard resets per power cycle */
 #define ESP_RST_PORT    GPIOA
@@ -45,7 +47,7 @@ static volatile uint8_t cmd_wr = 0;
 static volatile uint8_t cmd_rd = 0;
 typedef struct {
   char    topic[64];
-  char    payload[128];
+  char    payload[PENDING_PAYLOAD_SIZE];
   uint8_t valid;   /* 0=empty, 1=pending */
 } PendingMsg;
 
@@ -56,7 +58,7 @@ static uint8_t    was_ready      = 0;   /* previous IsReady() for rising-edge de
 /* Internal: raw publish via UART — no IsReady check, no queue. */
 static void PublishRaw(const char *topic, const char *payload)
 {
-  char cmd[256];
+  char cmd[PUBLISH_CMD_SIZE];
   int len = snprintf(cmd, sizeof(cmd), "+PUB:%s:%s\r\n", topic, payload);
   if (len > 0 && len < (int)sizeof(cmd)) {
     HAL_UART_Transmit(&huart4, (uint8_t *)cmd, len, 100);
@@ -253,7 +255,7 @@ void WifiIoT_Process(void)
 }
 
 /* Publish if link is up, otherwise enqueue for later retransmission.
-   Same topic overwrites the existing slot (dedup). */
+   State/data topics coalesce to the newest value. Alerts remain ordered. */
 void WifiIoT_Publish(const char *topic, const char *payload)
 {
   if (WifiIoT_IsReady()) {
@@ -262,13 +264,16 @@ void WifiIoT_Publish(const char *topic, const char *payload)
   }
 
   /* ── Link down: enqueue ── */
-  /* 1) overwrite slot with same topic */
-  for (int i = 0; i < PENDING_QUEUE_SIZE; i++) {
-    if (pending_queue[i].valid && strcmp(pending_queue[i].topic, topic) == 0) {
-      strncpy(pending_queue[i].payload, payload, sizeof(pending_queue[i].payload) - 1);
-      pending_queue[i].payload[sizeof(pending_queue[i].payload) - 1] = '\0';
-      printf("[WiFiIoT] Q-update '%s'\r\n", topic);
-      return;
+  /* 1) overwrite same-topic state/data, but never collapse alert events. */
+  if (strcmp(topic, "aihear/alert") != 0) {
+    for (int i = 0; i < PENDING_QUEUE_SIZE; i++) {
+      if (pending_queue[i].valid && strcmp(pending_queue[i].topic, topic) == 0) {
+        strncpy(pending_queue[i].payload, payload,
+                sizeof(pending_queue[i].payload) - 1);
+        pending_queue[i].payload[sizeof(pending_queue[i].payload) - 1] = '\0';
+        printf("[WiFiIoT] Q-update '%s'\r\n", topic);
+        return;
+      }
     }
   }
   /* 2) find empty slot */
