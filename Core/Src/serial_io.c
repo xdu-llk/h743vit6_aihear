@@ -8,7 +8,7 @@ void Serial_Init(void)
   setvbuf(stdout, NULL, _IONBF, 0);  /* unbuffered —实时输出到串口 */
   printf("\r\n=== STM32H743 AI Hear ===\r\n");
   printf("SystemClock: 480MHz\r\n");
-  printf("LED: PC0  Buzzer: PB0 (TIM3_CH3)\r\n\r\n");
+  printf("RGB: PB4/PB5/PB3  Buzzer: PB0 (TIM3_CH3)\r\n\r\n");
 }
 
 /* printf 重定向 — Picolibc 回调 */

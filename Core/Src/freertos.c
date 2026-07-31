@@ -47,7 +47,14 @@ static void Ui_SetEnvironment(float temp_c, float humi_pct, uint8_t valid)
 
 static void ServiceLongOperation(void)
 {
+  static uint32_t last_status_query_ms;
+  uint32_t now = HAL_GetTick();
+
   WifiIoT_Process();
+  if ((now - last_status_query_ms) >= 5000U) {
+    WifiIoT_QueryStatus();
+    last_status_query_ms = now;
+  }
   Buzzer_MelodyTick();
   Alarm_Process();
   IWDG1->KR = 0xAAAA;
@@ -667,11 +674,22 @@ static void vAudioInferTask(void *pvParameters)
         snprintf(topic, sizeof(topic), "aihear/v1/demo/%s/status", devid);
         WifiIoT_Publish(topic, devid);
       }
+      printf("[HEALTH] stack_free=%luB heap_free=%luB heap_min=%luB "
+             "uart_ovf=%u pending=%u\r\n",
+             (unsigned long)uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t),
+             (unsigned long)xPortGetFreeHeapSize(),
+             (unsigned long)xPortGetMinimumEverFreeHeapSize(),
+             (unsigned)WifiIoT_GetRxOverflow(),
+             (unsigned)WifiIoT_GetPendingCount());
     }
   }
 }
 
 void vApplicationTickHook(void) {}
+void vApplicationMallocFailedHook(void) {
+  printf("\r\n[PANIC] FreeRTOS heap exhausted\r\n");
+  __disable_irq(); for (;;) {}
+}
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
   (void)xTask; printf("\r\n[PANIC] %s\r\n", pcTaskName);
   __disable_irq(); for (;;) {}

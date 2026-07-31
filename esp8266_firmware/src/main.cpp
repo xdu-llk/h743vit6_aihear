@@ -1,5 +1,5 @@
 /*
- * AI Hear Bridge v4 — WiFiManager + device-level MQTT with QoS 0 retry delivery
+ * AI Hear Bridge v5 — AP provisioning + device-level MQTT + snapshot forwarding
  */
 #include <Arduino.h>
 #include <ESP8266WiFi.h>

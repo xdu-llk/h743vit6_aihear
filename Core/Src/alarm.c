@@ -16,7 +16,7 @@ static const Pattern PATTERNS[] = {
   [ALARM_STATE_IDLE]      = { { 255, 200,   0 }, 10000,    0,    0,    0,  0 }, /* yellow solid — disarmed */
   [ALARM_STATE_ARMED]     = { {   0, 255,   0 },  500,  500,    0,    0,  0 }, /* green 1Hz — armed */
   [ALARM_STATE_DETECTING] = { {   0, 255, 255 },  125,  125,    0,    0,  0 }, /* cyan 4Hz */
-  [ALARM_STATE_ALERT]     = { { 255,   0,   0 },  200,  100,  200,  200,  3 }, /* red + 3 beeps — baby cry */
+  [ALARM_STATE_ALERT]     = { { 255,   0,   0 },  200,  100,    0,    0,  0 }, /* red; melody owns buzzer PWM */
   [ALARM_STATE_RECOVERY]  = { {   0, 255,   0 },  200, 2000,    0,    0,  0 }, /* green slow */
   [ALARM_STATE_ENV_ALERT] = { { 255,   0,   0 },  200,  100,    0,    0,  0 }, /* red — env alert, no buzzer */
 };

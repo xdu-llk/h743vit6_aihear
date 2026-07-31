@@ -22,12 +22,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -53,6 +47,7 @@ public class MqttService extends Service {
     public static String sBrokerHost = "broker-cn.emqx.io";
     public static int    sBrokerPort = 1883;
     private static final int    KEEPALIVE_SEC = 30;
+    private static final int    MAX_MQTT_PACKET_BYTES = 4096;
     private static final String TOPIC_ALERT_FILTER  = "aihear/v1/demo/+/alert";
     private static final String TOPIC_STATUS_FILTER = "aihear/v1/demo/+/status";
     private static final String TOPIC_LEGACY_DEVICE_ALERT_FILTER = "aihear/+/alert";
@@ -691,6 +686,7 @@ public class MqttService extends Service {
             int multiplier = 1;
             int remainingLen = 0;
             int rlBytes = 0;
+            boolean remainingLengthComplete = false;
             while (rlBytes < 4) {
                 if (!running) return null;
                 int b = in.read();
@@ -698,7 +694,14 @@ public class MqttService extends Service {
                 remainingLen += (b & 0x7F) * multiplier;
                 multiplier *= 128;
                 rlBytes++;
-                if ((b & 0x80) == 0) break;
+                if ((b & 0x80) == 0) {
+                    remainingLengthComplete = true;
+                    break;
+                }
+            }
+            if (!remainingLengthComplete) throw new Exception("Malformed MQTT length");
+            if (remainingLen > MAX_MQTT_PACKET_BYTES) {
+                throw new Exception("MQTT packet too large: " + remainingLen);
             }
 
             // 读取剩余部分
@@ -718,6 +721,9 @@ public class MqttService extends Service {
             return pkt;
 
         } catch (Exception e) {
+            // EOF or a partial MQTT packet means the stream can no longer be
+            // trusted. Reconnect now instead of spinning until the next ping.
+            forceReconnect = true;
             Log.w(TAG, "readMqttPacket 失败: " + e.getMessage());
             return null;
         }
@@ -793,19 +799,6 @@ public class MqttService extends Service {
         String newId = "aihear_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         prefs.edit().putString(KEY_CLIENT_ID, newId).apply();
         return newId;
-    }
-
-    private SSLSocketFactory createTrustAllSslFactory() throws Exception {
-        TrustManager[] trustAll = new TrustManager[]{
-            new X509TrustManager() {
-                public void checkClientTrusted(X509Certificate[] c, String a) {}
-                public void checkServerTrusted(X509Certificate[] c, String a) {}
-                public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-            }
-        };
-        SSLContext ctx = SSLContext.getInstance("TLS");
-        ctx.init(null, trustAll, new java.security.SecureRandom());
-        return ctx.getSocketFactory();
     }
 
     private void updateConnStatus(int status) {
@@ -897,7 +890,7 @@ public class MqttService extends Service {
         lastAlertScore = score;
         lastAlertTs    = now;
 
-        // ── 通知：10 秒冷却（实时告警不被去重吞掉） ──
+        // ── 通知：哭声 20 秒冷却；环境告警按异常/恢复状态锁存 ──
         final String fCls = cls;
         final String fDeviceId = deviceId;
         final double fScore = score;

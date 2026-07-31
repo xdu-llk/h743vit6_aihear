@@ -63,4 +63,8 @@ tools/cleanup_ui.py
 tools/update_js.py
 tools/update_js2.py
 
+# 已取消硬件的早期概念图（保留本地，不进入最终方案）
+docs/final_product_design.svg
+output/imagegen/
+
 # KWS data

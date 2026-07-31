@@ -14,8 +14,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const htmlPath = join(scriptDir, "assets", "index.html");
-const photoPath = resolve(process.argv[2] || join(repoRoot, "build", "qa-camera.jpg"));
+const photoPath = process.argv[2] ? resolve(process.argv[2]) : null;
 const outputDir = resolve(process.argv[3] || join(repoRoot, "build"));
+// Small complete JPEG used when no real camera fixture is supplied. Keeping the
+// fallback in the test makes it reproducible after the STM32 build is cleaned.
+const fallbackJpeg =
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////" +
+  "2wBDAf//////////////////////////////////////////////////////////////////////////////////////" +
+  "wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/" +
+  "9oADAMBAAIQAxAAAAF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAA" +
+  "AAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAA" +
+  "AAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAU" +
+  "EQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EH//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EH//xAAU" +
+  "EAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EH//2Q==";
 const chromeCandidates = [
   process.env.CHROME_PATH,
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -26,12 +37,13 @@ const chromePath = chromeCandidates.find(existsSync);
 
 if (!chromePath) throw new Error("Chrome or Edge was not found");
 if (!existsSync(htmlPath)) throw new Error(`App HTML not found: ${htmlPath}`);
-if (!existsSync(photoPath)) throw new Error(`JPEG fixture not found: ${photoPath}`);
-if (![".jpg", ".jpeg"].includes(extname(photoPath).toLowerCase())) {
+if (photoPath && !existsSync(photoPath)) throw new Error(`JPEG fixture not found: ${photoPath}`);
+if (photoPath && ![".jpg", ".jpeg"].includes(extname(photoPath).toLowerCase())) {
   throw new Error("The bridge fixture must be a JPEG file");
 }
 
-const photo = readFileSync(photoPath);
+const photo = photoPath ? readFileSync(photoPath) : Buffer.from(fallbackJpeg, "base64");
+const photoName = photoPath ? basename(photoPath) : "embedded-bridge-test.jpg";
 if (photo.length < 4 || photo[0] !== 0xff || photo[1] !== 0xd8 ||
     photo.at(-2) !== 0xff || photo.at(-1) !== 0xd9) {
   throw new Error("The bridge fixture is not a complete JPEG");
@@ -94,7 +106,6 @@ function createCdpClient(url) {
     socket.onopen = resolveReady;
     socket.onerror = () => rejectReady(new Error("Chrome DevTools WebSocket failed"));
   });
-
   return {
     ready,
     on(method, listener) {
@@ -305,7 +316,7 @@ async function main() {
   };
   const failed = Object.entries(checks).filter(([, passed]) => !passed);
   console.log(JSON.stringify({
-    fixture: { name: basename(photoPath), bytes: photo.length },
+    fixture: { name: photoName, bytes: photo.length },
     successState,
     requestState,
     unavailableState,

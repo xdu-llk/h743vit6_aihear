@@ -9,7 +9,8 @@
 ## 功能特性
 
 - 🍼 **婴儿哭声实时检测** — H743板端全INT8 DS-CNN推理，概率分级与真实时序复核
-- 🌡️ **温湿度环境监护** — 4 阈值告警 (温度 >30/<16°C, 湿度 >80/<30%)，独立冷却
+- 🌡️ **环境安全监护** — DHT11固定阈值 + MQ-135/GP2Y1010动态基线，独立确认与恢复
+- 📷 **事件抓拍** — 哭声告警触发OV2640单帧抓拍，TFT本地预览并向App分片上传
 - 🏠 **多房间统一管理** — 单 App 同时监视多台设备，MQTT 设备级 topic 隔离
 - 📊 **数据看板** — Chart.js 双折线图 (7天哭声+喂养 / 24h温湿度)
 - 🤖 **AI 分析** — DeepSeek API 综合哭声规律+温湿度+喂养建议
@@ -48,7 +49,7 @@ DHT11 温湿度 @2s + GP2Y1010 + MQ-135 → TFT实时刷新+持续异常确认 �
 | 按键 | 6×6mm 轻触按键 | 2 | KEY1硬复位H7，KEY2长按重新配网 |
 | 调试器 | ST-Link V2 | 1 | |
 
-完整 BOM 见 [docs/BOM.md](docs/BOM.md)
+唯一BOM、引脚与载板约束见 [hardware_pin_plan.md](docs/hardware_pin_plan.md)，产品功能边界见 [final_system_overview.md](docs/final_system_overview.md)。
 
 ---
 
@@ -133,7 +134,7 @@ h743vit6_aihear/
 │   └── reexport_v3.py       # PyTorch→Keras→TFLite INT8→C 数组
 ├── tools/                   # 开发验证工具
 │   └── mqtt_e2e_test.py     # MQTT 端到端验证脚本
-├── docs/                    # 物料清单 + 协议文档 + 国赛推进路线
+├── docs/                    # 最终硬件表、系统全貌与通信协议
 ├── Makefile                 # STM32 构建系统 (arm-none-eabi-gcc)
 ├── STM32H743XX_FLASH.ld     # 自定义链接脚本 (tensor_arena + audio_d2)
 ├── startup_stm32h743xx.s    # 启动汇编
@@ -152,9 +153,9 @@ h743vit6_aihear/
 | 音频采集 | `audio.c` | SAI3 DMA双缓冲、Cache一致性(`SCB_InvalidateDCache`)、24bit I2S→int32 |
 | 特征提取 | `audio_preproc.cc` | CMSIS-DSP 512pt FFT + 40×257 Mel 滤波 + per-sample Z-score |
 | 模型推理 | `tflm_runner.cc` | TFLite Micro + CMSIS-NN, 512KB tensor arena (AXI SRAM), INT8 动态量化 |
-| 任务调度 | `freertos.c` | 单任务 + `vTaskNotifyGiveFromISR` 唤醒, IWDG 8s |
+| 任务调度 | `freertos.c` | 单任务 + `vTaskNotifyGiveFromISR` 唤醒，IWDG约1.5s；长操作周期喂狗 |
 | 告警控制 | `alarm.c` | 6 状态查找表: IDLE/ARMED/DETECTING/ALERT/RECOVERY/ENV_ALERT |
-| WiFi通信 | `wifi_iot.c` | UART4 单字节中断+环形缓冲+行解析, `+PUB:topic:payload` 协议 |
+| WiFi通信 | `wifi_iot.c` | UART4 1024B循环DMA+行解析, `+PUB:topic:payload` 协议 |
 | 温湿度 | `dht11.c` | DWT 微秒级 bit-bang, 关中断读 40bit |
 
 ### 告警逻辑
@@ -167,13 +168,15 @@ prob_cry ≥ 90% → 即时 ALERT (蜂鸣器+RGB+TFT+MQTT, 20s 冷却)
 prob < 75% → NORMAL (跳过)
 ```
 
-**温湿度 — 阈值告警（不随哭声监听暂停）：**
+**环境 — 持续异常告警（不随哭声监听暂停）：**
 ```
-temp > 30°C → temp_high (RGB 红灯, 蜂鸣器不响, 5min 冷却)
+temp > 30°C → temp_high (RGB 红灯, 蜂鸣器不响, STM32每5min最多重报一次)
 temp < 16°C → temp_low
 humi > 80%  → humi_high
 humi < 30%  → humi_low
-婴儿哭优先级高于温湿度
+MQ-135与GP2Y1010按动态基线确认持续异常
+Android对环境异常锁存，恢复前只弹一次通知
+婴儿哭优先级高于环境告警
 ```
 
 ### 模型训练
@@ -189,7 +192,7 @@ humi < 30%  → humi_low
 - 4 Tab：告警(首页)、喂养、统计(Chart.js 双折线图)、AI 分析(DeepSeek)
 - 事件抓拍：设备级JPEG分片重组、CRC32/SOI/EOI校验、60KB上限和明确失败状态
 - env_hourly 聚合：每 2s 接收环境样本并更新 SQLite，每小时一行 (avg/max/min)
-- 去重策略：STM32 20s(哭)/5min(env) / 通知 20s(哭)/5min(env) / 入库 10min
+- 去重策略：STM32哭声20s、环境持续异常每5min最多重报；Android哭声通知20s、环境异常-恢复锁存；哭声入库10min去重
 
 ### MQTT 通信架构
 
@@ -198,9 +201,9 @@ humi < 30%  → humi_low
 | ESP8266 | broker-cn.emqx.io:1883 | `aihear/v1/demo/{id}/alert`, `/status`, `/env`, `/state`, `/snapshot` |
 | Android | broker-cn.emqx.io:1883 | 订阅所有设备级 topic + `aihear/cmd` (命令下发) |
 
-Payload 格式：
-- 婴儿哭告警: `baby_cry:0.95`
-- 温湿度告警: `temp_high` (纯 class 名)
+Broker Payload 格式：
+- 告警: `{"eventId":"...","class":"baby_cry","score":0.95,"uptimeMs":...}`
+- 环境告警同样使用JSON，`class`可为`temp_high`、`mq135_high`、`particle_high`等
 - 环境数据: `{"deviceId":"…","temp":28.5,"humi":55,"uptimeMs":…}`
 - 控制命令: `{"cmd":"arm","device":"aihear_03cb03"}`
 - 抓拍分片: `captureId|seq|total|crc32|base64`

@@ -5,6 +5,8 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.net.Uri;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
@@ -61,13 +63,24 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
-        ws.setAllowContentAccess(true);
+        ws.setAllowContentAccess(false);
+        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         ws.setMediaPlaybackRequiresUserGesture(false); // 允许自动播放音频
 
         webView.addJavascriptInterface(bridge, "Android");
         webView.setWebChromeClient(new WebChromeClient());
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri url = request.getUrl();
+                boolean localApp = "file".equals(url.getScheme()) &&
+                    "/android_asset/index.html".equals(url.getPath());
+                boolean blank = "about".equals(url.getScheme()) &&
+                    "blank".equals(url.getSchemeSpecificPart());
+                return !localApp && !blank;
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 // 页面加载完成后，延迟自动恢复（等权限对话框消失）

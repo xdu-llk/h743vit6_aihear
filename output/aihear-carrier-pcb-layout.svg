@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120">
+  <defs>
+    <style>
+      text{font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;letter-spacing:0}
+      .title{font-size:34px;font-weight:700}.sub{font-size:17px;fill:#50606d}.h{font-size:20px;font-weight:700}
+      .label{font-size:15px;font-weight:700}.small{font-size:13px;fill:#4c5c68}.tiny{font-size:11px;fill:#52616c}.light{fill:#eef5f2}
+      .pcb{fill:#176b4b;stroke:#0d3f2d;stroke-width:4}.module{fill:#edf2f4;stroke:#263946;stroke-width:2}
+      .header{fill:#18232b;stroke:#0a1015;stroke-width:2}.pin{fill:#d7b24c}.hot{fill:#fff1ed;stroke:#c94335;stroke-width:3}
+      .cool{fill:#edf7fb;stroke:#3381a6;stroke-width:2}.keep{fill:#f8eeda;stroke:#d79a20;stroke-width:3;stroke-dasharray:10 7}
+      .ffc{fill:#e9e2ff;stroke:#7256b3;stroke-width:3}.dim{fill:none;stroke:#44535e;stroke-width:1.5;marker-start:url(#a);marker-end:url(#a)}
+      .sig{fill:none;stroke:#e9f2ee;stroke-width:2;opacity:.78}.power5{stroke:#ef6657}.power3{stroke:#f6b941}.ground{stroke:#70b7e6}
+    </style>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#44535e"/></marker>
+    <pattern id="pins" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="9" cy="9" r="4" class="pin"/></pattern>
+    <pattern id="vents" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="3" fill="#57717e"/></pattern>
+  </defs>
+  <rect width="1600" height="1120" fill="#f7f9fa"/>
+  <rect x="0" y="0" width="1600" height="9" fill="#1a7b58"/>
+  <text x="70" y="58" class="title">AI Hear 最终载板布局建议</text>
+  <text x="70" y="88" class="sub">120 × 90 mm 双层排母载板 · 只焊排母/排针/按键 · ST7789与OV2640直接插H7 FPC</text>
+
+  <!-- 120 x 90 mm carrier, 10 px/mm -->
+  <rect x="70" y="130" width="1200" height="900" rx="12" class="pcb"/>
+  <circle cx="105" cy="165" r="17" fill="#f7f9fa" stroke="#d6b85a" stroke-width="7"/>
+  <circle cx="1235" cy="165" r="17" fill="#f7f9fa" stroke="#d6b85a" stroke-width="7"/>
+  <circle cx="105" cy="995" r="17" fill="#f7f9fa" stroke="#d6b85a" stroke-width="7"/>
+  <circle cx="1235" cy="995" r="17" fill="#f7f9fa" stroke="#d6b85a" stroke-width="7"/>
+
+  <!-- dimension lines -->
+  <path d="M70 108 H1270" class="dim"/><text x="640" y="101" class="small">120 mm 建议值</text>
+  <path d="M48 130 V1030" class="dim"/><text x="25" y="600" class="small" transform="rotate(-90 25 600)">90 mm 建议值</text>
+
+  <!-- warm MQ zone -->
+  <rect x="125" y="185" width="292" height="225" rx="10" class="hot"/>
+  <text x="143" y="213" class="h" fill="#a92c25">热区 / MQ-135</text>
+  <rect x="168" y="240" width="210" height="125" rx="5" class="module"/>
+  <circle cx="236" cy="302" r="44" fill="#c7cbd0" stroke="#58656d" stroke-width="5"/>
+  <path d="M205 270h62M194 289h84M190 309h92M199 329h74" stroke="#69747b" stroke-width="5"/>
+  <rect x="335" y="258" width="18" height="90" fill="url(#pins)" class="header"/>
+  <text x="151" y="392" class="small">1x4母座：5V / GND / DO(NC) / AO</text>
+  <text x="151" y="430" class="tiny">靠板边开排气孔；与DHT11、麦克风、FFC保持距离</text>
+
+  <!-- GP2Y cool zone -->
+  <rect x="125" y="458" width="292" height="215" rx="10" class="cool"/>
+  <text x="143" y="486" class="h">颗粒物冷区</text>
+  <rect x="153" y="518" width="230" height="92" rx="5" fill="#272e35" stroke="#b8c5cc" stroke-width="2"/>
+  <text x="173" y="557" font-size="18" fill="#fff">GP2Y适配板</text>
+  <text x="173" y="582" font-size="12" fill="#cbd6dc">ILED · AO · GND · VCC</text>
+  <rect x="350" y="528" width="18" height="72" fill="url(#pins)" class="header"/>
+  <path d="M153 625 C105 625 100 650 82 650" stroke="#edf7fb" stroke-width="5" fill="none"/>
+  <text x="143" y="649" class="tiny">原装6芯线从板边引向金属传感器进气口</text>
+
+  <!-- H7 core board -->
+  <rect x="435" y="365" width="632" height="364" rx="12" fill="#173444" stroke="#9bc8d6" stroke-width="4"/>
+  <text x="640" y="535" font-size="34" font-weight="700" fill="#fff">STM32H743VIT6</text>
+  <text x="670" y="573" font-size="17" fill="#a9d7df">63.22 × 36.42 mm</text>
+  <rect x="475" y="380" width="530" height="24" fill="url(#pins)" class="header"/>
+  <rect x="475" y="690" width="530" height="24" fill="url(#pins)" class="header"/>
+  <text x="485" y="427" font-size="13" fill="#d8e6eb">H2 / 2x20P</text>
+  <text x="485" y="682" font-size="13" fill="#d8e6eb">H3 / 2x20P</text>
+  <rect x="435" y="448" width="30" height="92" class="ffc"/><text x="448" y="548" class="tiny" transform="rotate(-90 448 548)">CAMERA</text>
+  <rect x="435" y="574" width="30" height="88" class="ffc"/><text x="448" y="658" class="tiny" transform="rotate(-90 448 658)">DISPLAY</text>
+  <rect x="1067" y="490" width="58" height="58" rx="5" fill="#d6dadd" stroke="#45545d" stroke-width="2"/>
+  <text x="1073" y="568" class="tiny">USB-C朝外</text>
+
+  <!-- FFC routes, not carrier circuitry -->
+  <path d="M435 494 C405 494 401 450 382 450" class="ffc" fill="none" stroke-width="8"/>
+  <path d="M435 618 C405 618 401 690 382 690" class="ffc" fill="none" stroke-width="8"/>
+  <text x="420" y="752" class="small light">FFC直接去前面板，不在载板设连接器</text>
+
+  <!-- ESP and antenna keepout -->
+  <rect x="1015" y="174" width="225" height="160" rx="9" class="keep"/>
+  <rect x="1018" y="217" width="145" height="96" rx="5" fill="#20292e" stroke="#cbd5d9" stroke-width="2"/>
+  <rect x="1018" y="227" width="25" height="75" fill="url(#pins)" class="header"/>
+  <path d="M1083 242h62v12h-50v12h50v12h-50v12h50" fill="none" stroke="#d6a637" stroke-width="5"/>
+  <text x="1049" y="207" class="label">ESP-01可拆2x4座</text>
+  <text x="1065" y="329" class="tiny">天线端朝外</text>
+  <text x="1084" y="155" class="small">15mm禁铜/禁金属区</text>
+
+  <!-- buzzer top, far from microphone -->
+  <rect x="680" y="180" width="235" height="132" rx="8" class="module"/>
+  <circle cx="750" cy="246" r="42" fill="#26323a"/>
+  <circle cx="750" cy="246" r="8" fill="#10161a"/>
+  <rect x="870" y="211" width="18" height="72" fill="url(#pins)" class="header"/>
+  <text x="810" y="238" class="label">无源蜂鸣器</text>
+  <text x="810" y="264" class="small">1x3母座 / PB0</text>
+
+  <!-- DHT11 -->
+  <rect x="142" y="760" width="270" height="150" rx="8" class="cool"/>
+  <rect x="165" y="795" width="155" height="82" rx="4" fill="#51aaca" stroke="#185e78" stroke-width="2"/>
+  <path d="M185 810h115M185 830h115M185 850h115" stroke="#d7f0f7" stroke-width="5" stroke-dasharray="10 8"/>
+  <rect x="350" y="801" width="18" height="66" fill="url(#pins)" class="header"/>
+  <text x="153" y="941" class="label" fill="#fff">DHT11冷区 / VCC-DATA-GND</text>
+
+  <!-- round INMP441 -->
+  <circle cx="595" cy="860" r="83" fill="#20272c" stroke="#c5a74e" stroke-width="5"/>
+  <circle cx="595" cy="860" r="9" fill="#b7b9b8"/>
+  <text x="548" y="965" class="label" fill="#fff">圆形INMP441</text>
+  <text x="524" y="990" class="tiny light">靠拾音孔，远离蜂鸣器与气流</text>
+
+  <!-- RGB and keys -->
+  <rect x="760" y="812" width="205" height="88" rx="7" class="module"/>
+  <rect x="783" y="829" width="64" height="45" rx="4" fill="#20272c"/>
+  <rect x="797" y="838" width="35" height="27" fill="#f4f5ef" stroke="#888"/>
+  <rect x="913" y="822" width="18" height="66" fill="url(#pins)" class="header"/>
+  <text x="857" y="850" class="label">RGB</text><text x="857" y="874" class="tiny">- R G B</text>
+  <rect x="994" y="813" width="82" height="82" rx="8" class="module"/>
+  <circle cx="1035" cy="854" r="25" fill="#29343b"/><text x="1000" y="916" class="small light">KEY1 / NRST</text>
+  <rect x="1120" y="813" width="82" height="82" rx="8" class="module"/>
+  <circle cx="1161" cy="854" r="25" fill="#29343b"/><text x="1113" y="916" class="small light">KEY2 / GPIO0</text>
+
+  <!-- simplified routing legend -->
+  <path d="M417 300 C500 300 480 365 530 365" class="sig power5"/>
+  <path d="M417 565 C430 565 430 620 475 620" class="sig power5"/>
+  <path d="M412 835 C430 835 430 700 520 700" class="sig power3"/>
+  <path d="M678 860 C730 860 720 700 760 700" class="sig ground"/>
+  <text x="1315" y="164" class="h">实施规则</text>
+  <text x="1315" y="204" class="small">1. 图中模块轮廓是布局包络，</text><text x="1315" y="225" class="small">   焊盘必须按实物1:1测量。</text>
+  <text x="1315" y="262" class="small">2. 载板不放稳压、ADC滤波、</text><text x="1315" y="283" class="small">   ESP烧录座或FPC座。</text>
+  <text x="1315" y="320" class="small">3. 5V/3.3V用宽线或铺铜；</text><text x="1315" y="341" class="small">   信号线短、地回流连续。</text>
+  <text x="1315" y="378" class="small">4. MQ热区与ESP天线禁区</text><text x="1315" y="399" class="small">   必须优先于“走线好看”。</text>
+  <text x="1315" y="436" class="small">5. 下单前镜像打印1:1纸样，</text><text x="1315" y="457" class="small">   插入全部模块确认方向。</text>
+
+  <text x="1315" y="525" class="h">图例</text>
+  <line x1="1318" y1="558" x2="1375" y2="558" class="sig power5"/><text x="1386" y="564" class="small">5V电源</text>
+  <line x1="1318" y1="588" x2="1375" y2="588" class="sig power3"/><text x="1386" y="594" class="small">3.3V电源</text>
+  <line x1="1318" y1="618" x2="1375" y2="618" class="sig ground"/><text x="1386" y="624" class="small">地/回流提示</text>
+  <rect x="1318" y="647" width="57" height="28" class="keep"/><text x="1386" y="667" class="small">禁布区</text>
+
+  <rect x="1315" y="730" width="240" height="182" rx="7" fill="#fff" stroke="#c7d0d6"/>
+  <text x="1333" y="760" class="label">制造前仍需实测</text>
+  <text x="1333" y="792" class="small">• 两组2x20排母中心距</text>
+  <text x="1333" y="820" class="small">• 每块模块外形与1脚方向</text>
+  <text x="1333" y="848" class="small">• M2/M2.5孔径和孔位</text>
+  <text x="1333" y="876" class="small">• USB-C与FFC弯折半径</text>
+  <text x="1333" y="899" class="tiny">本图是工程布局依据，不是Gerber。</text>
+  <text x="70" y="1080" class="small">Final layout v2 · 2026-07-31 · 唯一接线依据：docs/hardware_pin_plan.md</text>
+</svg>

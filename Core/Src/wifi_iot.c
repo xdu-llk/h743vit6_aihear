@@ -59,6 +59,13 @@ static PendingMsg pending_queue[PENDING_QUEUE_SIZE];
 static uint8_t    pending_count  = 0;
 static uint8_t    was_ready      = 0;   /* previous IsReady() for rising-edge detect */
 
+static bool IsAlertTopic(const char *topic)
+{
+  if (!topic) return false;
+  const char *last_slash = strrchr(topic, '/');
+  return strcmp(last_slash ? last_slash + 1 : topic, "alert") == 0;
+}
+
 /* Internal: raw publish via UART — no IsReady check, no queue. */
 static void PublishRaw(const char *topic, const char *payload)
 {
@@ -360,7 +367,7 @@ void WifiIoT_Publish(const char *topic, const char *payload)
 
   /* ── Link down: enqueue ── */
   /* 1) overwrite same-topic state/data, but never collapse alert events. */
-  if (strcmp(topic, "aihear/alert") != 0) {
+  if (!IsAlertTopic(topic)) {
     for (int i = 0; i < PENDING_QUEUE_SIZE; i++) {
       if (pending_queue[i].valid && strcmp(pending_queue[i].topic, topic) == 0) {
         strncpy(pending_queue[i].payload, payload,
@@ -384,10 +391,25 @@ void WifiIoT_Publish(const char *topic, const char *payload)
       return;
     }
   }
-  /* 3) queue full — drop oldest, reuse last slot */
-  printf("[WiFiIoT] Q-full! drop oldest for '%s'\r\n", topic);
-  memmove(&pending_queue[0], &pending_queue[1],
-          sizeof(PendingMsg) * (PENDING_QUEUE_SIZE - 1));
+  /* 3) Queue full. Preserve alerts by evicting the oldest state/data item.
+     If all entries are alerts, a new state sample is less important and is
+     dropped; a new alert replaces the oldest alert. */
+  int evict = -1;
+  for (int i = 0; i < PENDING_QUEUE_SIZE; ++i) {
+    if (!IsAlertTopic(pending_queue[i].topic)) {
+      evict = i;
+      break;
+    }
+  }
+  if (evict < 0 && !IsAlertTopic(topic)) {
+    printf("[WiFiIoT] Q-full! preserve alerts, drop '%s'\r\n", topic);
+    return;
+  }
+  if (evict < 0) evict = 0;
+  printf("[WiFiIoT] Q-full! evict '%s' for '%s'\r\n",
+         pending_queue[evict].topic, topic);
+  memmove(&pending_queue[evict], &pending_queue[evict + 1],
+          sizeof(PendingMsg) * (PENDING_QUEUE_SIZE - 1 - evict));
   strncpy(pending_queue[PENDING_QUEUE_SIZE - 1].topic, topic,
           sizeof(pending_queue[PENDING_QUEUE_SIZE - 1].topic) - 1);
   strncpy(pending_queue[PENDING_QUEUE_SIZE - 1].payload, payload,

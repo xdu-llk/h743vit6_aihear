@@ -6,7 +6,7 @@ each ESP8266 MAC suffix, such as `aihear_03cb03` and `aihear_876f07`.
 | Direction | Topic | Payload |
 |---|---|---|
 | Device to App | `aihear/v1/demo/{deviceId}/alert` | JSON alert event |
-| Device to App | `aihear/v1/demo/{deviceId}/status` | JSON device status |
+| Device to App | `aihear/v1/demo/{deviceId}/status` | ESP状态JSON或H7心跳设备ID |
 | Device to App | `aihear/v1/demo/{deviceId}/state` | STM32 control state and command acknowledgement |
 | Device to App | `aihear/v1/demo/{deviceId}/env` | Environment sample |
 | Device to App | `aihear/v1/demo/{deviceId}/snapshot` | JPEG chunk or capture failure |
@@ -60,13 +60,12 @@ after all chunks arrive, CRC32 matches, and JPEG SOI/EOI markers are valid. A
 capture failure uses `!|captureId|reason`, for example
 `!|h12ab34cd|unavailable`. Snapshot assembly is isolated by device ID.
 
-During migration, older ESP8266 firmware publishes both `aihear/alert` and
-`aihear/{macSuffix}/alert`. The new App subscribes to the device-specific legacy
-filter `aihear/+/alert`, converts a suffix such as `03CB03` to
-`aihear_03cb03`, and deliberately ignores the global alert to prevent duplicate
-or unattributable events. New ESP firmware publishes v1 plus the global topic
-for old App compatibility. MQTT remains plaintext in the competition build;
-TLS and per-device ACLs remain tracked under P0-11.
+During migration, older ESP8266 firmware may publish `aihear/alert` and
+`aihear/{macSuffix}/alert`. The App accepts only the attributable legacy
+`aihear/+/alert` form and ignores the global topic. Bridge v5 publishes only the
+device-scoped v1 topic. MQTT remains plaintext in the competition build; this
+is acceptable for the isolated demonstration path but is not a production
+security design.
 
 The ESP8266 bridge uses PubSubClient MQTT QoS 0. It retries once when the local
 publish call fails, but there is no broker PUBACK; documentation and demos must

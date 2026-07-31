@@ -28,7 +28,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "led.h"
 #include "buzzer.h"
 #include "serial_io.h"
 #include "audio.h"
@@ -110,7 +109,7 @@ int main(void)
   /* AXI SRAM cold-boot: clear all 512KB for ECC parity init */
   memset((void *)0x24000000, 0, 512 * 1024);
 
-  /* Boot watchdog: auto-retry if cold boot hangs (~3s) */
+  /* Boot watchdog: auto-retry if cold boot hangs (~1.5s) */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
   IWDG1->KR = 0x5555;
@@ -143,7 +142,7 @@ int main(void)
   RGB_Init();
   IWDG1->KR = 0xAAAA;
   if (TftUi_Init()) {
-    printf("[TFT] ST7789 ready at 240x240\r\n");
+    printf("[TFT] write path initialized; panel pixels await visual check\r\n");
   } else {
     printf("[TFT] initialization failed; continuing headless\r\n");
   }

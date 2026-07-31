@@ -1,6 +1,6 @@
 /*
  * FreeRTOSConfig.h — STM32H743VIT6 @ 480MHz Cortex-M7 core clock
- * Manual integration, minimal config for three-task pipeline.
+ * Manual integration, minimal config for the single inference/control task.
  */
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
@@ -15,7 +15,7 @@
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 )
 #define configMAX_PRIORITIES                    ( 7 )
 #define configMINIMAL_STACK_SIZE                ( ( unsigned short ) 128 )
-#define configTOTAL_HEAP_SIZE                   ( ( size_t ) 32768 )  /* 32KB for 3 tasks + queue */
+#define configTOTAL_HEAP_SIZE                   ( ( size_t ) 32768 )  /* app + idle/timer tasks */
 #define configMAX_TASK_NAME_LEN                 ( 16 )
 #define configUSE_16_BIT_TICKS                  0
 #define configIDLE_SHOULD_YIELD                 1
@@ -42,7 +42,7 @@
  *----------------------------------------------------------*/
 #define configUSE_IDLE_HOOK                     0
 #define configUSE_TICK_HOOK                     1
-#define configUSE_MALLOC_FAILED_HOOK            0
+#define configUSE_MALLOC_FAILED_HOOK            1
 #define configUSE_DAEMON_TASK_STARTUP_HOOK      0
 
 /*-----------------------------------------------------------
