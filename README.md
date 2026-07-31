@@ -6,6 +6,22 @@
 
 ---
 
+## 当前状态（2026-08-01）
+
+| 模块 | 状态 | 已验证范围 / 待完成项 |
+|---|---|---|
+| STM32H743 固件 | 基础实板通过 | 最终固件已编译并烧录；音频、DHT11、MQ-135、GP2Y1010、告警通信链路正常。原厂 FPC TFT 与 OV2640 待到货实测 |
+| ESP8266 | bridge-v5 已构建 | `aihear_03cb03` 已烧录 v5；`aihear_876f07` 已通过 v4 多设备隔离验证，仍需升级 v5 |
+| Android App | 构建与回归通过 | APK v2/v3 签名有效；多设备控制、照片分片校验与 WebView 页面回归通过，真实相机照片待联调 |
+| 环境监测 | 基础实板通过 | MQ-135 使用 120 秒预热 + 60 个采样建立动态基线，约 179 秒就绪；GP2Y1010 固定接线下连续约 110 秒无误报 |
+| PCB 与外壳 | 已完成设计 | 最终装配后仍需进行 30–60 分钟整机供电、温升和复位恢复测试 |
+
+当前 STM32 构建产物为 `481752B` BIN；ELF 为 text `481248B`、data `496B`、bss `931560B`。实板健康日志观测到 `stack_free≈14192B`、`heap_min=14384B`、`uart_ovf=0`。
+
+> `99.67%`仅是历史验证集结果，不代表独立设备现场实测准确率。MQ-135 与 GP2Y1010 未做标准气体/颗粒物标定，界面只显示相对基线指数，不显示 ppm 或精确 PM2.5 浓度。
+
+---
+
 ## 功能特性
 
 - 🍼 **婴儿哭声实时检测** — H743板端全INT8 DS-CNN推理，概率分级与真实时序复核
@@ -49,7 +65,12 @@ DHT11 温湿度 @2s + GP2Y1010 + MQ-135 → TFT实时刷新+持续异常确认 �
 | 按键 | 6×6mm 轻触按键 | 2 | KEY1硬复位H7，KEY2长按重新配网 |
 | 调试器 | ST-Link V2 | 1 | |
 
-唯一BOM、引脚与载板约束见 [hardware_pin_plan.md](docs/hardware_pin_plan.md)，产品功能边界见 [final_system_overview.md](docs/final_system_overview.md)。
+### 文档导航
+
+- [最终系统全貌](docs/final_system_overview.md)：产品功能、告警优先级、演示主线与验证边界
+- [最终硬件引脚与载板方案](docs/hardware_pin_plan.md)：唯一 BOM、逐脚连接、FPC 与布局约束
+- [MQTT 协议](docs/mqtt_protocol.md)：设备级 topic、命令、状态、告警和照片分片格式
+- [开发协作说明](AGENTS.md)：代码架构、内存布局、构建命令和当前待办
 
 ---
 
@@ -138,7 +159,8 @@ h743vit6_aihear/
 ├── Makefile                 # STM32 构建系统 (arm-none-eabi-gcc)
 ├── STM32H743XX_FLASH.ld     # 自定义链接脚本 (tensor_arena + audio_d2)
 ├── startup_stm32h743xx.s    # 启动汇编
-├── CLAUDE.md                # 项目详细技术文档
+├── AGENTS.md                # 当前技术事实、验证状态与开发约束
+├── CLAUDE.md                # 文档入口（避免重复维护技术参数）
 └── README.md                # 本文档
 ```
 
@@ -189,7 +211,7 @@ Android对环境异常锁存，恢复前只弹一次通知
 
 - 基于 TCP Socket 手写 MQTT 3.1.1 协议栈（零第三方 MQTT 库）
 - 前台 Service + WakeLock 息屏保活
-- 4 Tab：告警(首页)、喂养、统计(Chart.js 双折线图)、AI 分析(DeepSeek)
+- 4 Tab：监护、喂养、趋势（Chart.js 折线图）、分析（DeepSeek）
 - 事件抓拍：设备级JPEG分片重组、CRC32/SOI/EOI校验、60KB上限和明确失败状态
 - env_hourly 聚合：每 2s 接收环境样本并更新 SQLite，每小时一行 (avg/max/min)
 - 去重策略：STM32哭声20s、环境持续异常每5min最多重报；Android哭声通知20s、环境异常-恢复锁存；哭声入库10min去重
@@ -233,8 +255,11 @@ Broker Payload 格式：
 ### ESP8266 设备信息
 
 - Chip: ESP8266EX, Crystal: 26MHz
-- Device 1: `aihear_03cb03` (MAC: 2c:3a:e8:03:cb:03)
-- Device 2: `aihear_876f07` (MAC: 84:f3:eb:87:6f:07)
+
+| 设备ID | MAC | 当前固件状态 |
+|---|---|---|
+| `aihear_03cb03` | `2c:3a:e8:03:cb:03` | bridge-v5 已烧录 |
+| `aihear_876f07` | `84:f3:eb:87:6f:07` | bridge-v4 隔离验证通过，待升级 bridge-v5 |
 
 ---
 
