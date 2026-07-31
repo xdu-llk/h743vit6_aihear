@@ -211,20 +211,21 @@ Payload 格式：
 
 | 外设 | 引脚 | 备注 |
 |------|------|------|
-| INMP441 | PD4(WS) PD0(SCK) PD1(SD) | SAI3/I2S, VCC→3.3V, L/R→GND |
-| ESP8266 | PA1(RX) PA0(TX) | UART4, 交叉连接 |
-| DHT11 | PE7(DATA) | single-wire, 3.3V |
-| OV2640 | 开发板 CAMERA FPC | PB8/PB9 SCCB + 8-bit DCMI |
-| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY FPC，SPI4，3.3V |
-| MQ-135 | PA3(AO) | ADC12_INP15，DO不接 |
-| GP2Y1010 | PC1(AO) PD7(ILED) | ADC123_INP11 + LED采样脉冲 |
-| RGB LED | PB4(R) PB5(G) PB10(B) | 共阴模块 |
-| 蜂鸣器 | PB0 (TIM3 PWM) | OCPOLARITY_LOW |
+| INMP441 | PD4(WS/H3-18) PD0(SCK/H3-15) PD1(SD/H3-16) | SAI3/I2S, VCC→3.3V, L/R→GND |
+| ESP8266 | PA0(H7 TX/H2-33) PA1(H7 RX/H2-34) PA2(RST/H2-31) | PA0→ESP RX，PA1←ESP TX；PA2低电平复位ESP |
+| DHT11 | PE7(DATA/H2-21) | single-wire, 3.3V |
+| OV2640 | 开发板 CAMERA 24P FPC | PB8/PB9 SCCB + 8-bit DCMI，逐脚表见硬件文档 |
+| ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY 10P FPC，SPI4，3.3V |
+| MQ-135 | PA3(AO/H2-32) | ADC12_INP15，DO不接 |
+| GP2Y1010 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲 |
+| RGB LED | PB4(R/H3-23) PB5(G/H3-24) PB3(B/H3-22) | 共阴模块，三路相邻 |
+| 蜂鸣器 | PB0 (H2-23, TIM3 PWM) | OCPOLARITY_LOW |
 | 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位；KEY2长按配网 |
-| USB-TTL | PA9(TX) PA10(RX) | 调试串口 CH340 |
+| USB-TTL | PA9(TX/H3-10) PA10(RX/H3-9) | 调试串口 CH340 |
 | ST-Link | SWDIO/SWCLK/GND/3.3V | |
 
 完整载板排母、CAMERA FPC、板载占线和布局限制见 [hardware_pin_plan.md](docs/hardware_pin_plan.md)。
+厂家VIT6原理图中的两侧扩展排针为 `H2/H3`，均为 `2x20P`。
 
 ### ESP8266 设备信息
 

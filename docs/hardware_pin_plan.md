@@ -48,31 +48,32 @@ TFT首轮板测不连接 OV2640。DHT11 保持每2秒读取并驱动TFT实时指
 
 ### 2.2 最终 PCB 引脚分配
 
-| 模块 | 模块信号 | H7 引脚 | 复用功能 | 开发板排针 | 备注 |
-|---|---|---:|---|---|---|
-| ESP-01 | RX | PA0 | UART4_TX, AF8 | J3-34 | 交叉连接 |
-| ESP-01 | TX | PA1 | UART4_RX, AF8 | J3-33 | 板载 LED 对该线有负载，现有实测链路保留 |
-| ESP-01 | RST | PA2 | GPIO output | J3-32 | 低电平硬复位 ESP |
-| MQ-135 | AO | PA3 | ADC12_INP15 | J3-31 | DO不接；直连为用户接受的受控演示风险 |
-| 调试串口 | RXD | PA9 | USART1_TX, AF7 | V2.0 调试排针 TXD | 接 CH340 RXD |
-| 调试串口 | TXD | PA10 | USART1_RX, AF7 | V2.0 调试排针 RXD | 接 CH340 TXD |
-| 蜂鸣器模块 | I/O | PB0 | TIM3_CH3, AF2 | J3-24 | 低电平有效，无源模块 |
-| RGB | R | PB4 | GPIO output | J2-38 | 共阴模块，自带限流电阻 |
-| RGB | G | PB5 | GPIO output | J2-37 | 共阴模块，自带限流电阻 |
-| RGB | B | PB3 | GPIO output | 上侧排针，与PB4/PB5相邻 | 避开摄像头和板载QSPI占线 |
-| GP2Y1010 | AO | PC1 | ADC123_INP11 | J3-37 | 使用适配板的 AO |
-| INMP441 | SCK | PD0 | SAI3_SCK_A, AF6 | J2-27 | 从 PE5 迁移 |
-| INMP441 | SD | PD1 | SAI3_SD_A, AF6 | J2-30 | 从 PE6 迁移 |
-| INMP441 | WS | PD4 | SAI3_FS_A, AF6 | J2-31 | 从 PE4 迁移 |
-| GP2Y1010 | ILED | PD7 | GPIO output | J2-36 | 按传感器时序产生采样脉冲 |
-| ST7789 | BL | PD15 | GPIO output | DISPLAY FPC | 背光控制；屏幕没有独立 RES 引脚 |
-| DHT11 | DATA | PE7 | GPIO open-drain/input | J3-21 | 从 PD0 迁移 |
-| ST7789 | CS | PE11 | GPIO output | DISPLAY FPC | 当前固件使用软件片选，物理引脚与厂家例程一致 |
-| ST7789 | SCK | PE12 | SPI4_SCK, AF5 | DISPLAY FPC | 初次板测使用 30MHz SPI 时钟 |
-| ST7789 | MOSI | PE14 | SPI4_MOSI, AF5 | DISPLAY FPC | 单向写屏，无 MISO/SDO |
-| ST7789 | DC | PE15 | GPIO output | DISPLAY FPC | 数据/命令选择 |
+下表只列载板真正需要布线的信号。厂家 `LXB743VIT6原理图.pdf` 将两侧扩展排针命名为 `H2/H3`，规格均为 `2x20P`；旧文档中的 `J2/J3` 和 `2x22` 已废止。
 
-说明：J2/J3 编号来自 2019 M 版原理图；画封装时仍须以 V2.0 实物丝印方向为准，不能仅凭表格镜像放置两个 2x22 插座。
+| 模块 | 模块信号 | H7 引脚 | 固件配置 | 开发板接口 | 载板处理 |
+|---|---|---:|---|---|---|
+| ESP-01 | RX | PA0 | UART4_TX, AF8 | H2-33 | 交叉接ESP RX |
+| ESP-01 | TX | PA1 | UART4_RX, AF8 | H2-34 | 交叉接ESP TX |
+| ESP-01 | RST | PA2 | GPIO推挽输出 | H2-31 | 低电平硬复位ESP |
+| MQ-135 | AO | PA3 | ADC12_INP15 | H2-32 | DO不接；AO直连风险见3.5节 |
+| 蜂鸣器模块 | I/O | PB0 | TIM3_CH3, AF2 | H2-23 | 低电平有效，无源蜂鸣器模块 |
+| DHT11 | DATA | PE7 | GPIO推挽输出/上拉输入切换 | H2-21 | 模块板自带上拉 |
+| GP2Y1010 | AO | PC1 | ADC123_INP11 | H3-14 | 接适配板AO |
+| GP2Y1010 | ILED | PD7 | GPIO推挽输出 | H3-21 | 高电平点亮采样LED |
+| INMP441 | SCK | PD0 | SAI3_SCK_A, AF6 | H3-15 | 16kHz、24bit I2S |
+| INMP441 | SD | PD1 | SAI3_SD_A, AF6 | H3-16 | 麦克风数据输入 |
+| INMP441 | WS | PD4 | SAI3_FS_A, AF6 | H3-18 | 帧同步 |
+| RGB | B | PB3 | GPIO推挽输出 | H3-22 | 与R/G连续相邻 |
+| RGB | R | PB4 | GPIO推挽输出 | H3-23 | 共阴模块，自带限流电阻 |
+| RGB | G | PB5 | GPIO推挽输出 | H3-24 | 共阴模块，自带限流电阻 |
+| CH340 | RXD | PA9 | USART1_TX, AF7 | 调试座TXD；亦为H3-10 | 只接RXD和GND |
+| CH340 | TXD | PA10 | USART1_RX, AF7 | 调试座RXD；亦为H3-9 | 只接TXD和GND |
+| KEY1 | 一端 | NRST | 硬件复位输入 | 调试座RST | 另一端接GND，不经过GPIO |
+| KEY2 | 一端 | ESP GPIO0 | ESP固件输入/启动绑带 | ESP插座GPIO0 | 另一端接GND，不连接H7 |
+
+载板供电可从 `H3-1/H3-2` 取得5V，从 `H3-3/H3-4` 取得3.3V，从 `H2-1/H2-2` 取得GND。最终封装必须按实物正反面和1脚方向核对，不能只看原理图左右位置后直接镜像放置。`PC0/H3-13` 仍被当前固件初始化为旧状态LED输出，载板暂不复用。
+
+ST7789和OV2640分别直插开发板DISPLAY/CAMERA FPC，不经过载板H2/H3，也不在PCB上重复布线；其逐脚定义见3.2和第4节。
 
 ## 3. 模块排母定义
 
@@ -93,17 +94,21 @@ TFT首轮板测不连接 OV2640。DHT11 保持每2秒读取并驱动TFT实时指
 
 屏幕使用与开发板匹配的蓝白软排线直插 DISPLAY FPC，不在载板上增加 1x8 排母或重新布 SPI 信号。
 
-| 屏幕信号 | H7 连接 |
-|---|---|
-| CS | PE11 / GPIO软件片选 |
-| SCK | PE12 / SPI4_SCK |
-| MOSI | PE14 / SPI4_MOSI |
-| DC | PE15 / GPIO |
-| BL | PD15 / GPIO |
-| VCC | 3.3V |
-| GND | GND |
+| DISPLAY FPC脚 | 屏幕信号 | H7连接 | 固件方式 |
+|---:|---|---|---|
+| 1 | GND | GND | 电源地 |
+| 2 | SCK | PE12 | SPI4_SCK, AF5 |
+| 3 | GND | GND | 电源地 |
+| 4 | BL | PD15 | GPIO推挽输出，背光控制 |
+| 5 | DC | PE15 | GPIO推挽输出，数据/命令选择 |
+| 6 | CS | PE11 | GPIO软件片选 |
+| 7 | MOSI | PE14 | SPI4_MOSI, AF5 |
+| 8 | GND | GND | 电源地 |
+| 9 | VCC | 3.3V | 屏幕供电 |
+| 10 | VCC | 3.3V | 屏幕供电 |
+| 11、12 | 固定脚 | GND | FPC座外壳固定脚 |
 
-FPC 触点 `1、3、8` 为 GND，`9、10` 为 3.3V，插座固定脚 `11、12` 接 GND。该屏没有 RES 和 MISO/SDO；不得按普通 8 针 ST7789 模块的针序接线。排线插入前必须按开发板和屏幕实物确认触点朝向。
+该屏没有 RES 和 MISO/SDO；不得按普通8针ST7789模块的针序接线。排线插入前必须按开发板和屏幕实物确认触点朝向。
 
 ### 3.3 DHT11，1x3
 
@@ -170,24 +175,30 @@ ESP 必须可拔下，用外部 CH340 单独烧录。载板不放 ESP 烧录排�
 
 开发板 CAMERA FPC 已经完成 DCMI、SCCB、电源和补光控制连接，载板不要再复制这些连线。
 
-| FPC 脚 | 信号 | H7 引脚 |
-|---:|---|---|
-| - | SCCB_SDA | PB9 |
-| - | SCCB_SCL | PB8 |
-| - | RESET | PC4 |
-| - | FLASH / 双补光灯 | PA5 |
-| - | PWDN | PD14 |
-| - | HREF | PA4 |
-| - | VSYNC | PB7 |
-| - | D0 | PC6 |
-| - | D1 | PC7 |
-| - | D2 | PE0 |
-| - | D3 | PE1 |
-| - | D4 | PE4 |
-| - | D5 | PD3 |
-| - | D6 | PE5 |
-| - | D7 | PE6 |
-| - | PCLK | PA6 |
+| CAMERA FPC脚 | 信号 | H7引脚 | 固件方式 |
+|---:|---|---|---|
+| 1、2、3 | VCC | 3.3V | 摄像头供电 |
+| 4、5 | GND | GND | 电源地 |
+| 6 | SCCB_SDA | PB9 | 软件SCCB，开漏+上拉 |
+| 7 | SCCB_SCL | PB8 | 软件SCCB，开漏+上拉 |
+| 8 | GND | GND | 电源地 |
+| 9 | RESET | PC4 | GPIO输出，低电平复位 |
+| 10 | FLASH / 双补光灯 | PA5 | GPIO输出，高电平点亮 |
+| 11 | PWDN | PD14 | GPIO输出，高电平掉电 |
+| 12 | HREF / HSYNC | PA4 | DCMI_HSYNC, AF13 |
+| 13 | VSYNC | PB7 | DCMI_VSYNC, AF13 |
+| 14 | D0 | PC6 | DCMI_D0, AF13 |
+| 15 | D1 | PC7 | DCMI_D1, AF13 |
+| 16 | D2 | PE0 | DCMI_D2, AF13 |
+| 17 | D3 | PE1 | DCMI_D3, AF13 |
+| 18 | D4 | PE4 | DCMI_D4, AF13 |
+| 19 | D5 | PD3 | DCMI_D5, AF13 |
+| 20 | D6 | PE5 | DCMI_D6, AF13 |
+| 21 | D7 | PE6 | DCMI_D7, AF13 |
+| 22 | PCLK | PA6 | DCMI_PIXCLK, AF13 |
+| 23 | NC | 不连接 | 厂家原理图悬空 |
+| 24 | GND | GND | 电源地 |
+| 25、26 | 固定脚 | GND | FPC座外壳固定脚 |
 
 摄像头模块自带 24MHz 有源晶振，因此不需要 H7 输出 XCLK。`PC4` 原来的 H7 软件按键功能必须删除，因为它已是摄像头 RESET；旧 OLED 的 `PB10/PB11` 也不再初始化。RGB蓝色改用同侧排针的`PB3`。
 
