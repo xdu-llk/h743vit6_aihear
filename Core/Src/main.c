@@ -23,6 +23,7 @@
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
+#include "spi.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -35,6 +36,7 @@
 #include "rgb_led.h"
 #include "tflm_runner.h"
 #include "audio_preproc.h"
+#include "tft_ui.h"
 #include "arm_math.h"
 #include <string.h>
 
@@ -121,12 +123,20 @@ int main(void)
   MX_TIM3_Init();
   MX_UART4_Init();
   MX_SAI3_Init();
+  MX_SPI4_Init();
   /* USER CODE BEGIN 2 */
   Buzzer_Init();
   Serial_Init();
   Audio_Init();
   Alarm_Init();
   RGB_Init();
+  IWDG1->KR = 0xAAAA;
+  if (TftUi_Init()) {
+    printf("[TFT] ST7789 ready at 240x240\r\n");
+  } else {
+    printf("[TFT] initialization failed; continuing headless\r\n");
+  }
+  IWDG1->KR = 0xAAAA;
 
   AudioPreproc_Init();
   printf("[PREPROC] Log-mel spectrogram ready (%dx%d)\n",

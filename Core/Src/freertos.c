@@ -12,6 +12,7 @@
 #include "buzzer.h"
 #include "wifi_iot.h"
 #include "dht11.h"
+#include "tft_ui.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -25,20 +26,14 @@
 
 TaskHandle_t hAudioTask = NULL;
 
-/* Stage 1 disables the old OLED and PC4 button. PB3 now drives RGB blue;
-   these hooks become the ST7789 renderer in the next milestone. */
 static void Ui_ShowStatus(const char *status, const char *detail, float dbfs)
 {
-  (void)status;
-  (void)detail;
-  (void)dbfs;
+  TftUi_SetStatus(status, detail, dbfs);
 }
 
 static void Ui_SetEnvironment(float temp_c, float humi_pct, uint8_t valid)
 {
-  (void)temp_c;
-  (void)humi_pct;
-  (void)valid;
+  TftUi_SetEnvironment(temp_c, humi_pct, valid);
 }
 
 static uint8_t PublishControlState(uint8_t armed)
@@ -198,7 +193,9 @@ static void vAudioInferTask(void *pvParameters)
         /* Tier 1: high confidence → immediate alert */
         printf("\r\n[DETECT] %s p=%.0f%% pk=%lu (instant)\r\n",
                names[0], (double)(prob_cry * 100), peak);
-        Ui_ShowStatus("ALERT!", names[0], dbfs);
+        char ui_detail[24];
+        snprintf(ui_detail, sizeof(ui_detail), "CRY %.0f%%", (double)(prob_cry * 100));
+        Ui_ShowStatus("ALERT!", ui_detail, dbfs);
         Alarm_SetState(ALARM_STATE_ALERT);
         alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
         Buzzer_PlayMelody();
@@ -206,7 +203,7 @@ static void vAudioInferTask(void *pvParameters)
           WifiIoT_Publish("aihear/alert", p); }
       } else if (prob_cry >= 0.75f) {
         /* Tier 2: collect two genuinely newer windows, 0.2 s apart. */
-        Ui_ShowStatus("VOTING..", NULL, dbfs);
+        Ui_ShowStatus("VOTING", "CHECK 1/3", dbfs);
         float probs[3] = {prob_cry, 0.0f, 0.0f};
         int valid_count = 1;
         for (int r = 0; r < 2; r++) {
@@ -215,6 +212,9 @@ static void vAudioInferTask(void *pvParameters)
           const int32_t *next_window = Audio_CaptureWindow();
           if (!next_window || !InferCryProbability(next_window, &probs[r + 1])) break;
           valid_count++;
+          char vote_detail[16];
+          snprintf(vote_detail, sizeof(vote_detail), "CHECK %d/3", valid_count);
+          Ui_ShowStatus("VOTING", vote_detail, dbfs);
         }
 
         if (valid_count == 3) {
@@ -231,7 +231,10 @@ static void vAudioInferTask(void *pvParameters)
           if (detected) {
             printf("\r\n[DETECT] %s score=%.0f%% (temporal)\r\n",
                    names[0], (double)(decision_score*100));
-            Ui_ShowStatus("ALERT!", names[0], dbfs);
+            char ui_detail[24];
+            snprintf(ui_detail, sizeof(ui_detail), "CRY %.0f%%",
+                     (double)(decision_score * 100));
+            Ui_ShowStatus("ALERT!", ui_detail, dbfs);
             Alarm_SetState(ALARM_STATE_ALERT);
             alert_until = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
             Buzzer_PlayMelody();
@@ -272,7 +275,7 @@ static void vAudioInferTask(void *pvParameters)
           armed = 0;
           Buzzer_StopMelody();
           Alarm_SetState(ALARM_STATE_IDLE);
-          Ui_ShowStatus("DISARMED", NULL, 0);
+          Ui_ShowStatus("DISARMED", NULL, dbfs);
         }
         control_state_dirty = 1;
         printf("\r\n[CMD] App: disarmed\r\n");
@@ -281,7 +284,7 @@ static void vAudioInferTask(void *pvParameters)
           armed = 1;
           Buzzer_StopMelody();
           Alarm_SetState(ALARM_STATE_ARMED);
-          Ui_ShowStatus("ARMED", NULL, 0);
+          Ui_ShowStatus("ARMED", NULL, dbfs);
         }
         control_state_dirty = 1;
         printf("\r\n[CMD] App: armed\r\n");
@@ -322,7 +325,7 @@ static void vAudioInferTask(void *pvParameters)
 
           if (env_alert) {
             printf("\r\n[ENV] %s t=%.1f h=%.1f\r\n", env_alert, (double)temp_c, (double)humi_pct);
-            Ui_ShowStatus("ALERT!", env_alert, 0);
+            Ui_ShowStatus("ALERT!", env_alert, dbfs);
             /* cry alert has priority — don't overwrite */
             if (Alarm_GetState() != ALARM_STATE_ALERT) {
               Alarm_SetState(ALARM_STATE_ENV_ALERT);
@@ -383,7 +386,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
 
 void FreeRTOS_Init(void) {
   DHT11_Init();
-  Ui_ShowStatus("BOOTING..", NULL, 0);
+  Ui_ShowStatus("BOOTING..", NULL, NAN);
   BaseType_t ret;
   ret = xTaskCreate(vAudioInferTask, "AudioInfer", 4096, NULL, 3, &hAudioTask);
   configASSERT(ret == pdPASS);

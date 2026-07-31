@@ -23,7 +23,9 @@
 
 ### 2.1 当前过渡测试固件
 
-2026-07-31 烧录的固件用于先回归原有功能。此时 TFT、OV2640、MQ-135 和 GP2Y1010 尚未加入，接线必须按下表；RGB蓝灯已经迁移，不能再接回PB8。
+2026-07-31 已烧录的阶段1固件用于回归原有功能。此时 TFT、OV2640、MQ-135 和 GP2Y1010 尚未加入；RGB蓝灯已经迁移，不能再接回PB8。
+
+阶段2固件已经加入 ST7789，完成全量编译、烧录和无屏回归。TFT未连接时，H7启动、音频推理、DHT每2秒云端上报以及MQTT双向控制均正常。屏幕到货后的下一次板测只连接 DISPLAY FPC 的 TFT，OV2640、MQ-135 和 GP2Y1010 继续断开。
 
 | 模块 | 当前接线 | 说明 |
 |---|---|---|
@@ -36,7 +38,7 @@
 | ESP-01 | RX→PA0，TX→PA1，RST→PA2 | UART4，现有链路不变 |
 | CH340 | RXD→PA9，TXD→PA10，GND→GND | USART1，115200 8N1；VCC/3.3V/5V 不接 |
 
-板测阶段不要连接 TFT 和 OV2640。当前固件中的 DHT11 主要验证读数与 2 秒刷新，持续确认、回差及新增环境传感器状态机将在 TFT 阶段统一实现。
+阶段2板测只连接 TFT，不连接 OV2640。DHT11 保持每 2 秒读取并驱动 TFT 实时指示；持续确认、回差及新增环境传感器状态机在 TFT 显示通过后继续实现。
 
 ### 2.2 最终 PCB 引脚分配
 
@@ -59,8 +61,8 @@
 | GP2Y1010 | ILED | PD7 | GPIO output | J2-36 | 按传感器时序产生采样脉冲 |
 | ST7789 | BL | PD15 | GPIO output | DISPLAY FPC | 背光控制；屏幕没有独立 RES 引脚 |
 | DHT11 | DATA | PE7 | GPIO open-drain/input | J3-21 | 从 PD0 迁移 |
-| ST7789 | CS | PE11 | SPI4_NSS, AF5 | DISPLAY FPC | 厂家例程使用硬件片选 |
-| ST7789 | SCK | PE12 | SPI4_SCK, AF5 | DISPLAY FPC | 初次板测先降低 SPI 速度 |
+| ST7789 | CS | PE11 | GPIO output | DISPLAY FPC | 当前固件使用软件片选，物理引脚与厂家例程一致 |
+| ST7789 | SCK | PE12 | SPI4_SCK, AF5 | DISPLAY FPC | 初次板测使用 30MHz SPI 时钟 |
 | ST7789 | MOSI | PE14 | SPI4_MOSI, AF5 | DISPLAY FPC | 单向写屏，无 MISO/SDO |
 | ST7789 | DC | PE15 | GPIO output | DISPLAY FPC | 数据/命令选择 |
 
@@ -87,7 +89,7 @@
 
 | 屏幕信号 | H7 连接 |
 |---|---|
-| CS | PE11 / SPI4_NSS |
+| CS | PE11 / GPIO软件片选 |
 | SCK | PE12 / SPI4_SCK |
 | MOSI | PE14 / SPI4_MOSI |
 | DC | PE15 / GPIO |
@@ -255,7 +257,7 @@ KEY1 不与普通 GPIO 连接，不依赖任务调度，因此固件卡死时仍
 
 1. SAI1 改为 SAI3并实板回归原有二分类模型，确认 16kHz、DMA 双缓冲和不可变快照不变。
 2. DHT11 改到 PE7，保持 TFT 实时 2 秒刷新与独立告警确认逻辑。
-3. 加入 SPI4 ST7789，先完成所有状态页面，不接摄像头。
+3. 加入 SPI4 ST7789，先完成所有状态页面，不接摄像头。固件已烧录且原功能回归通过，等待屏幕到货验证画面。
 4. 加入 ADC 与 GP2Y ILED 时序，完成原始值、基线、滤波、故障恢复和环境告警。
 5. 最后加入 DCMI OV2640：先本地抓拍，再 TFT 显示，再做 ESP 分块上传。
 
