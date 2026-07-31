@@ -14,6 +14,10 @@
 #include "dht11.h"
 #include "tft_ui.h"
 #include "env_monitor.h"
+#include "mq135.h"
+#include "mq135_monitor.h"
+#include "gp2y1010.h"
+#include "particle_monitor.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -23,6 +27,9 @@
 #define VOTE_STEP_SAMPLES     (20U * PREPROC_HOP_LEN)
 #define VOTE_WAIT_TIMEOUT_MS  500U
 #define ENV_READ_PERIOD_MS    2000U
+#define MQ135_READ_PERIOD_MS  1000U
+#define PARTICLE_READ_PERIOD_MS 1000U
+#define PARTICLE_PUBLISH_PERIOD_MS 2000U
 #define ENV_ALERT_COOLDOWN_MS 300000U
 
 TaskHandle_t hAudioTask = NULL;
@@ -124,20 +131,119 @@ static const char *EnvValueState(uint8_t active_mask,
   return "normal";
 }
 
+static void PublishEnvironmentData(uint8_t dht_valid, uint8_t dht_fault,
+                                   float temp_c, float humi_pct,
+                                   uint8_t dht_active_mask,
+                                   const Mq135MonitorUpdate *mq)
+{
+  const char *devid = WifiIoT_GetDeviceId();
+  const char *gas_state = Mq135Monitor_GetStateName();
+  char payload[232];
+  int length;
+
+  if (dht_valid && mq->ready) {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"temp\":%.1f,\"humi\":%.1f,"
+        "\"tempState\":\"%s\",\"humiState\":\"%s\",\"dhtValid\":true,"
+        "\"activeMask\":%u,\"gasIndex\":%.0f,\"gasState\":\"%s\","
+        "\"mqReady\":true,\"mqFault\":false,\"uptimeMs\":%lu}",
+        devid ? devid : "", (double)temp_c, (double)humi_pct,
+        EnvValueState(dht_active_mask, ENV_CONDITION_TEMP_HIGH,
+                      ENV_CONDITION_TEMP_LOW),
+        EnvValueState(dht_active_mask, ENV_CONDITION_HUMI_HIGH,
+                      ENV_CONDITION_HUMI_LOW),
+        (unsigned)dht_active_mask, (double)mq->index, gas_state,
+        (unsigned long)HAL_GetTick());
+  } else if (dht_valid) {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"temp\":%.1f,\"humi\":%.1f,"
+        "\"tempState\":\"%s\",\"humiState\":\"%s\",\"dhtValid\":true,"
+        "\"activeMask\":%u,\"gasIndex\":null,\"gasState\":\"%s\","
+        "\"mqReady\":false,"
+        "\"mqFault\":%s,\"uptimeMs\":%lu}",
+        devid ? devid : "", (double)temp_c, (double)humi_pct,
+        EnvValueState(dht_active_mask, ENV_CONDITION_TEMP_HIGH,
+                      ENV_CONDITION_TEMP_LOW),
+        EnvValueState(dht_active_mask, ENV_CONDITION_HUMI_HIGH,
+                      ENV_CONDITION_HUMI_LOW),
+        (unsigned)dht_active_mask, gas_state,
+        mq->phase == MQ135_PHASE_FAULT ? "true" : "false",
+        (unsigned long)HAL_GetTick());
+  } else if (mq->ready) {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"temp\":null,\"humi\":null,"
+        "\"dhtValid\":false,\"dhtFault\":%s,"
+        "\"gasIndex\":%.0f,\"gasState\":\"%s\",\"mqReady\":true,"
+        "\"mqFault\":false,\"uptimeMs\":%lu}",
+        devid ? devid : "", dht_fault ? "true" : "false",
+        (double)mq->index, gas_state, (unsigned long)HAL_GetTick());
+  } else {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"temp\":null,\"humi\":null,"
+        "\"dhtValid\":false,\"dhtFault\":%s,\"gasIndex\":null,"
+        "\"gasState\":\"%s\",\"mqReady\":false,\"mqFault\":%s,"
+        "\"uptimeMs\":%lu}",
+        devid ? devid : "", dht_fault ? "true" : "false", gas_state,
+        mq->phase == MQ135_PHASE_FAULT ? "true" : "false",
+        (unsigned long)HAL_GetTick());
+  }
+
+  if (length > 0 && length < (int)sizeof(payload)) {
+    WifiIoT_Publish("aihear/env", payload);
+  } else {
+    printf("[ENV] payload overflow (%d bytes)\r\n", length);
+  }
+}
+
+static void PublishParticleData(const ParticleMonitorUpdate *particle)
+{
+  const char *devid = WifiIoT_GetDeviceId();
+  char payload[160];
+  int length;
+
+  if (particle->ready) {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"pmIndex\":%.0f,\"pmState\":\"%s\","
+        "\"pmReady\":true,\"pmFault\":false,\"uptimeMs\":%lu}",
+        devid ? devid : "", (double)particle->index,
+        ParticleMonitor_GetStateName(), (unsigned long)HAL_GetTick());
+  } else {
+    length = snprintf(payload, sizeof(payload),
+        "{\"deviceId\":\"%s\",\"pmIndex\":null,\"pmState\":\"%s\","
+        "\"pmReady\":false,\"pmFault\":%s,\"uptimeMs\":%lu}",
+        devid ? devid : "", ParticleMonitor_GetStateName(),
+        particle->phase == PARTICLE_PHASE_FAULT ? "true" : "false",
+        (unsigned long)HAL_GetTick());
+  }
+
+  if (length > 0 && length < (int)sizeof(payload)) {
+    WifiIoT_Publish("aihear/env", payload);
+  } else {
+    printf("[PM] payload overflow (%d bytes)\r\n", length);
+  }
+}
+
 static void vAudioInferTask(void *pvParameters)
 {
   (void)pvParameters;
   TickType_t last_heartbeat = xTaskGetTickCount();
   TickType_t last_status_query = 0;
   TickType_t last_env_read = xTaskGetTickCount();
+  TickType_t last_mq135_read = xTaskGetTickCount();
+  TickType_t last_particle_read = xTaskGetTickCount();
+  TickType_t last_particle_publish =
+      xTaskGetTickCount() - pdMS_TO_TICKS(PARTICLE_READ_PERIOD_MS);
   TickType_t last_control_publish = 0;
   TickType_t alert_until = 0;
   /* 4 independent env alert cooldowns — 5 min each */
   TickType_t env_cooldown[ENV_CONDITION_COUNT] = {0};
+  TickType_t mq135_cooldown = 0;
+  TickType_t particle_cooldown = 0;
   uint8_t armed = 1;
   uint8_t last_published_armed = 0xff;
   uint8_t last_published_music = 0xff;
   uint8_t control_state_dirty = 1;
+  const char *last_env_ui_name = NULL;
 
   vTaskDelay(pdMS_TO_TICKS(1200));
 
@@ -304,6 +410,91 @@ static void vAudioInferTask(void *pvParameters)
     Buzzer_MelodyTick();
     Alarm_Process();
 
+    if ((xTaskGetTickCount() - last_mq135_read) >=
+        pdMS_TO_TICKS(MQ135_READ_PERIOD_MS)) {
+      last_mq135_read = xTaskGetTickCount();
+      uint16_t raw = 0;
+      bool read_ok = Mq135_ReadRaw(&raw);
+      Mq135MonitorUpdate mq =
+          Mq135Monitor_Update(read_ok, raw, HAL_GetTick());
+      TftUi_SetGasQuality(mq.index, mq.ready, mq.alert,
+                          mq.phase == MQ135_PHASE_FAULT);
+
+      static uint8_t mq_log_divider = 0;
+      if (++mq_log_divider >= 5U || mq.newly_alert || mq.newly_recovered ||
+          mq.fault_entered || mq.fault_recovered) {
+        mq_log_divider = 0;
+        printf("[MQ135] phase=%s raw=%u base=%u index=%.0f%s\r\n",
+               Mq135Monitor_GetStateName(), (unsigned)mq.raw,
+               (unsigned)mq.baseline, (double)mq.index,
+               mq.alert ? " ALERT" : "");
+      }
+
+      TickType_t now = xTaskGetTickCount();
+      if (mq.newly_alert ||
+          (mq.alert && EnvAlertReady(now, mq135_cooldown))) {
+        mq135_cooldown = now;
+        printf("[ENV] confirmed mq135_high raw=%u base=%u index=%.0f\r\n",
+               (unsigned)mq.raw, (unsigned)mq.baseline, (double)mq.index);
+        WifiIoT_Publish("aihear/alert", "mq135_high");
+      }
+      if (mq.newly_recovered) {
+        printf("[ENV] recovered mq135_high index=%.0f\r\n",
+               (double)mq.index);
+        WifiIoT_Publish("aihear/alert", "mq135_high_recovered");
+      }
+      if (mq.fault_entered) printf("[MQ135] sensor fault confirmed\r\n");
+      if (mq.fault_recovered)
+        printf("[MQ135] sensor recovered; restarting warmup\r\n");
+    }
+
+    if ((xTaskGetTickCount() - last_particle_read) >=
+        pdMS_TO_TICKS(PARTICLE_READ_PERIOD_MS)) {
+      last_particle_read = xTaskGetTickCount();
+      uint16_t raw = 0;
+      bool read_ok = Gp2y1010_ReadRaw(&raw);
+      ParticleMonitorUpdate particle =
+          ParticleMonitor_Update(read_ok, raw);
+      TftUi_SetParticleQuality(particle.index, particle.ready,
+                               particle.alert,
+                               particle.phase == PARTICLE_PHASE_FAULT);
+
+      static uint8_t particle_log_divider = 0;
+      if (++particle_log_divider >= 5U || particle.newly_alert ||
+          particle.newly_recovered || particle.fault_entered ||
+          particle.fault_recovered) {
+        particle_log_divider = 0;
+        printf("[PM] phase=%s raw=%u base=%u index=%.0f%s\r\n",
+               ParticleMonitor_GetStateName(), (unsigned)particle.raw,
+               (unsigned)particle.baseline, (double)particle.index,
+               particle.alert ? " ALERT" : "");
+      }
+
+      TickType_t now = xTaskGetTickCount();
+      if (particle.newly_alert ||
+          (particle.alert && EnvAlertReady(now, particle_cooldown))) {
+        particle_cooldown = now;
+        printf("[ENV] confirmed particle_high raw=%u base=%u index=%.0f\r\n",
+               (unsigned)particle.raw, (unsigned)particle.baseline,
+               (double)particle.index);
+        WifiIoT_Publish("aihear/alert", "particle_high");
+      }
+      if (particle.newly_recovered) {
+        printf("[ENV] recovered particle_high index=%.0f\r\n",
+               (double)particle.index);
+        WifiIoT_Publish("aihear/alert", "particle_high_recovered");
+      }
+      if (particle.fault_entered) printf("[PM] sensor fault confirmed\r\n");
+      if (particle.fault_recovered)
+        printf("[PM] sensor recovered; rebuilding baseline\r\n");
+
+      if ((now - last_particle_publish) >=
+          pdMS_TO_TICKS(PARTICLE_PUBLISH_PERIOD_MS)) {
+        last_particle_publish = now;
+        PublishParticleData(&particle);
+      }
+    }
+
     if ((xTaskGetTickCount() - last_env_read) >= pdMS_TO_TICKS(ENV_READ_PERIOD_MS)) {
       last_env_read = xTaskGetTickCount();
       float temp_c = 0.0f, humi_pct = 0.0f;
@@ -313,22 +504,9 @@ static void vAudioInferTask(void *pvParameters)
 
       if (env_update.sample_accepted) {
         Ui_SetEnvironment(temp_c, humi_pct, 1);
-        const char *devid = WifiIoT_GetDeviceId();
-        char payload[192];
-        snprintf(payload, sizeof(payload),
-                 "{\"deviceId\":\"%s\",\"temp\":%.1f,\"humi\":%.1f,"
-                 "\"tempState\":\"%s\",\"humiState\":\"%s\","
-                 "\"dhtValid\":true,\"activeMask\":%u,\"uptimeMs\":%lu}",
-                 devid ? devid : "", (double)temp_c, (double)humi_pct,
-                 EnvValueState(env_update.active_mask,
-                               ENV_CONDITION_TEMP_HIGH,
-                               ENV_CONDITION_TEMP_LOW),
-                 EnvValueState(env_update.active_mask,
-                               ENV_CONDITION_HUMI_HIGH,
-                               ENV_CONDITION_HUMI_LOW),
-                 (unsigned)env_update.active_mask,
-                 (unsigned long)HAL_GetTick());
-        WifiIoT_Publish("aihear/env", payload);
+        Mq135MonitorUpdate mq = Mq135Monitor_GetState();
+        PublishEnvironmentData(1, 0, temp_c, humi_pct,
+                               env_update.active_mask, &mq);
 
         TickType_t now = xTaskGetTickCount();
         for (EnvCondition condition = ENV_CONDITION_TEMP_HIGH;
@@ -355,13 +533,9 @@ static void vAudioInferTask(void *pvParameters)
       } else {
         if (env_update.dht_fault) {
           Ui_SetEnvironment(0.0f, 0.0f, 0);
-          const char *devid = WifiIoT_GetDeviceId();
-          char payload[128];
-          snprintf(payload, sizeof(payload),
-                   "{\"deviceId\":\"%s\",\"dhtValid\":false,"
-                   "\"dhtFault\":true,\"uptimeMs\":%lu}",
-                   devid ? devid : "", (unsigned long)HAL_GetTick());
-          WifiIoT_Publish("aihear/env", payload);
+          Mq135MonitorUpdate mq = Mq135Monitor_GetState();
+          PublishEnvironmentData(0, 1, 0.0f, 0.0f,
+                                 env_update.active_mask, &mq);
         }
         if (!dht_read_ok) {
           printf("[DHT11] failed %u/3: %s bit=%d\r\n",
@@ -379,15 +553,33 @@ static void vAudioInferTask(void *pvParameters)
 
     {
       AlarmState st = Alarm_GetState();
-      uint8_t env_active = EnvMonitor_GetActiveMask() != 0U;
+      Mq135MonitorUpdate mq = Mq135Monitor_GetState();
+      ParticleMonitorUpdate particle = ParticleMonitor_GetState();
+      uint8_t env_active = EnvMonitor_GetActiveMask() != 0U || mq.alert ||
+                           particle.alert;
+      const char *env_name = EnvMonitor_GetFirstActiveName();
+      if (env_name == NULL && mq.alert) env_name = "mq135_high";
+      if (env_name == NULL && particle.alert) env_name = "particle_high";
       if (st == ALARM_STATE_ALERT && xTaskGetTickCount() > alert_until) {
-        Alarm_SetState(env_active ? ALARM_STATE_ENV_ALERT :
-                       (armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE));
+        if (env_active) {
+          Alarm_SetState(ALARM_STATE_ENV_ALERT);
+          Ui_ShowStatus("ENV ALERT", env_name, dbfs);
+          last_env_ui_name = env_name;
+        } else {
+          Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+          Ui_ShowStatus(armed ? "ARMED" : "DISARMED", NULL, dbfs);
+          last_env_ui_name = NULL;
+        }
       } else if (st != ALARM_STATE_ALERT && env_active) {
-        Alarm_SetState(ALARM_STATE_ENV_ALERT);
-        Ui_ShowStatus("ENV ALERT", EnvMonitor_GetFirstActiveName(), dbfs);
+        if (st != ALARM_STATE_ENV_ALERT) Alarm_SetState(ALARM_STATE_ENV_ALERT);
+        if (st != ALARM_STATE_ENV_ALERT || last_env_ui_name != env_name) {
+          Ui_ShowStatus("ENV ALERT", env_name, dbfs);
+          last_env_ui_name = env_name;
+        }
       } else if (st == ALARM_STATE_ENV_ALERT && !env_active) {
         Alarm_SetState(armed ? ALARM_STATE_ARMED : ALARM_STATE_IDLE);
+        Ui_ShowStatus(armed ? "ARMED" : "DISARMED", NULL, dbfs);
+        last_env_ui_name = NULL;
       }
     }
 
@@ -429,6 +621,8 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
 void FreeRTOS_Init(void) {
   DHT11_Init();
   EnvMonitor_Init();
+  Mq135Monitor_Init(HAL_GetTick());
+  ParticleMonitor_Init();
   Ui_ShowStatus("BOOTING..", NULL, NAN);
   BaseType_t ret;
   ret = xTaskCreate(vAudioInferTask, "AudioInfer", 4096, NULL, 3, &hAudioTask);

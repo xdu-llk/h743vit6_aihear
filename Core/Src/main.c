@@ -24,6 +24,7 @@
 #include "usart.h"
 #include "gpio.h"
 #include "spi.h"
+#include "adc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -37,6 +38,8 @@
 #include "tflm_runner.h"
 #include "audio_preproc.h"
 #include "tft_ui.h"
+#include "mq135.h"
+#include "gp2y1010.h"
 #include "arm_math.h"
 #include <string.h>
 
@@ -124,7 +127,14 @@ int main(void)
   MX_UART4_Init();
   MX_SAI3_Init();
   MX_SPI4_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  if (!Mq135_Init()) {
+    printf("[MQ135] ADC calibration failed; sensor stays unavailable\r\n");
+  }
+  if (!Gp2y1010_Init()) {
+    printf("[GP2Y] ADC calibration failed; sensor stays unavailable\r\n");
+  }
   Buzzer_Init();
   Serial_Init();
   Audio_Init();

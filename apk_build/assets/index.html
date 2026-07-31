@@ -428,8 +428,12 @@ function pollControlState(){
 function readOptional(data,names){for(var i=0;i<names.length;i++){var value=data[names[i]];if(value!==null&&value!==undefined&&value!==''&&isFinite(Number(value)))return Number(value);}return null;}
 function envState(data,key,value){
   var raw=(data[key+'State']||data[key+'Status']||'').toString().toLowerCase();
+  if((key==='temp'||key==='humi')&&(data.dhtValid===false||data.dhtValid==='false'))return{css:'disabled',text:data.dhtFault===true||data.dhtFault==='true'?'故障':'无数据'};
   if(raw.indexOf('alarm')>=0||raw.indexOf('high')>=0||raw.indexOf('low')>=0)return{css:'alarm',text:'异常'};
   if(raw.indexOf('confirm')>=0||raw.indexOf('pending')>=0)return{css:'pending',text:'确认中'};
+  if(key==='pm'&&(data.pmFault===true||data.pmFault==='true'||raw==='fault'))return{css:'disabled',text:'故障'};
+  if(key==='gas'&&(data.mqFault===true||data.mqFault==='true'||raw==='fault'))return{css:'disabled',text:'故障'};
+  if(key==='pm'&&(raw==='baseline'||data.pmReady===false))return{css:'pending',text:'校准中'};
   if(key==='gas'&&(data.mqWarmup===true||data.mqWarmup==='true'||data.mqReady===false))return{css:'pending',text:'预热中'};
   if(value==null)return{css:'disabled',text:'无数据'};return{css:'',text:'正常'};
 }

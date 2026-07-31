@@ -7,7 +7,7 @@
 #define LINE_BUF_SIZE 256
 #define STATUS_TIMEOUT_MS  15000   /* mark offline if no +STATUS for 15 s */
 #define PENDING_QUEUE_SIZE 8       /* max stored alerts/status when link is down */
-#define PENDING_PAYLOAD_SIZE 192
+#define PENDING_PAYLOAD_SIZE 232
 #define PUBLISH_CMD_SIZE 320
 #define ESP_RESET_DEADLINE_MS 20000 /* hard-reset ESP after 20 s of no STATUS */
 #define ESP_MAX_RESETS  3          /* max hard resets per power cycle */

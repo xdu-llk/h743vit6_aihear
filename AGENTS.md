@@ -8,7 +8,7 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 阶段2.1实板回归通过 | 音频推理、ESP/MQTT双向控制正常；DHT 2s采样、3次确认、回差恢复已烧录，正常值云端实测通过 |
+| STM32 固件 | 阶段2.3软件完成/新增传感器待实板验证 | 阶段2.1音频、ESP/MQTT、DHT实板回归通过；MQ-135与GP2Y1010共享HAL ADC、各自相对基线/故障/告警状态机已全量构建并通过宿主单测 |
 | ESP8266 | 两台均已更新并通过隔离验证 | broker-cn.emqx.io，RST接PA2；精确设备ID匹配、伪造后缀拒绝、定向控制与状态回传均实测通过 |
 | Android App | ✅ 完成 | 4Tab，多设备绑定与定向控制，MQTT, SQLite, WakeLock |
 | TFT | 驱动已随固件烧录/待屏幕验证 | ST7789 240x240，30MHz SPI4，局部刷新；当前未连接屏幕也不阻塞系统 |
@@ -20,7 +20,7 @@
 
 1. TFT到货后只连接TFT，验证方向、颜色、状态变化和温湿度2s刷新；无需重新烧录即可先看首版界面
 2. 继续累计测试 STM32/ESP8266 单独复位后的 PA2 自动恢复稳定性
-3. 依次加入MQ-135、GP2Y1010；TFT到货后验证画面，OV2640保持最后接入
+3. MQ-135仍需先测AO不高于3.3V；GP2Y适配板已有1:10分压依据，可先连接并验证基线、告警与恢复
 4. 国赛阶段保持二分类，多分类不进入当前关键路径
 
 ---
@@ -52,6 +52,8 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
 | `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动5状态(IDLE/ARMED/DETECTING/ALERT/RECOVERY) |
+| `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，16次均值、30秒预热+30点基线、EMA、5次确认、回差恢复；只显示相对指数 |
+| `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，厂家280μs时序、10点基线、EMA、5次确认、回差恢复；只显示相对指数 |
 | `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
 ### 内存布局

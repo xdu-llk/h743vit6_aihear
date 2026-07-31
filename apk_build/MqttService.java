@@ -28,6 +28,7 @@ import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -373,11 +374,19 @@ public class MqttService extends Service {
                                                DeviceRegistry.contains(this, legacyAlertDevice)) {
                                         handleAlert(legacyAlertDevice, pub.topic, pub.payload);
                                     } else if (envDevice != null && DeviceRegistry.contains(this, envDevice)) {
-                                        sDeviceEnv.put(envDevice, pub.payload);
                                         sDeviceLastSeen.put(envDevice, System.currentTimeMillis());
                                         // hourly aggregation — upsert to SQLite every sample
                                         try {
                                             JSONObject envJson = new JSONObject(pub.payload);
+                                            String previous = sDeviceEnv.get(envDevice);
+                                            JSONObject merged = previous == null || previous.isEmpty()
+                                                    ? new JSONObject() : new JSONObject(previous);
+                                            Iterator<String> keys = envJson.keys();
+                                            while (keys.hasNext()) {
+                                                String key = keys.next();
+                                                merged.put(key, envJson.get(key));
+                                            }
+                                            sDeviceEnv.put(envDevice, merged.toString());
                                             double t = firstFinite(envJson, "temp", "temperature");
                                             double h = firstFinite(envJson, "humi", "humidity");
                                             double pm = firstFinite(envJson, "pmIndex", "particleIndex", "pm25", "pm");
