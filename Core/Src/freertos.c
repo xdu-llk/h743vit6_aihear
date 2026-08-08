@@ -37,11 +37,13 @@ TaskHandle_t hAudioTask = NULL;
 
 static void Ui_ShowStatus(const char *status, const char *detail, float dbfs)
 {
+  RuntimeStage_Set(RUNTIME_STAGE_UI);
   TftUi_SetStatus(status, detail, dbfs);
 }
 
 static void Ui_SetEnvironment(float temp_c, float humi_pct, uint8_t valid)
 {
+  RuntimeStage_Set(RUNTIME_STAGE_UI);
   TftUi_SetEnvironment(temp_c, humi_pct, valid);
 }
 
@@ -75,7 +77,10 @@ static void CaptureAndPublish(const char *source, float dbfs)
     return;
   }
 
+  printf("[CAM] %s begin id=%s\r\n", source, capture_id);
+  IWDG1->KR = 0xAAAA;
   Ui_ShowStatus("CAPTURING", source, dbfs);
+  RuntimeStage_Set(RUNTIME_STAGE_CAMERA_CAPTURE);
   CameraCaptureResult result = Camera_CaptureEvent(1200U, ServiceLongOperation);
   if (result != CAMERA_CAPTURE_OK) {
     printf("[CAM] %s capture failed: %s (%lums)\r\n", source,
@@ -89,7 +94,15 @@ static void CaptureAndPublish(const char *source, float dbfs)
   size_t rgb_length = 0, jpeg_length = 0;
   const uint8_t *rgb = Camera_GetRgb565(&rgb_length);
   const uint8_t *jpeg = Camera_GetJpeg(&jpeg_length);
+  printf("[CAM] captured jpeg=%uB elapsed=%lums\r\n",
+         (unsigned)jpeg_length, (unsigned long)(HAL_GetTick() - started));
+  IWDG1->KR = 0xAAAA;
+  RuntimeStage_Set(RUNTIME_STAGE_CAMERA_DISPLAY);
   bool displayed = TftUi_ShowSnapshot(rgb, (uint32_t)rgb_length);
+  printf("[CAM] display=%s elapsed=%lums\r\n", displayed ? "ok" : "off",
+         (unsigned long)(HAL_GetTick() - started));
+  IWDG1->KR = 0xAAAA;
+  RuntimeStage_Set(RUNTIME_STAGE_CAMERA_UPLOAD);
   bool uploaded = WifiIoT_PublishSnapshot(jpeg, jpeg_length, capture_id,
                                           ServiceLongOperation);
   if (!uploaded)
@@ -144,6 +157,7 @@ static float WindowDBFS(const int32_t *pcm)
 
 static bool InferCryProbability(const int32_t *pcm, float *prob_cry)
 {
+  RuntimeStage_Set(RUNTIME_STAGE_INFERENCE);
   AudioPreproc_Reset();
   for (int frame = 0; frame < PREPROC_NUM_FRAMES; frame++) {
     AudioPreproc_FeedFrame(pcm + frame * PREPROC_HOP_LEN);
@@ -310,6 +324,7 @@ static void vAudioInferTask(void *pvParameters)
   Alarm_SetState(ALARM_STATE_ARMED);  /* boot into armed state — green blink */
 
   for (;;) {
+    RuntimeStage_Set(RUNTIME_STAGE_AUDIO_WAIT);
     uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
     uint8_t automatic_capture_requested = 0;
 
@@ -332,18 +347,13 @@ static void vAudioInferTask(void *pvParameters)
       audio_stall_seconds = 0;
     }
 
-    /* Feed IWDG at most every 3s — not every loop (~16ms) */
-    {
-      static TickType_t last_iwdg = 0;
-      TickType_t now = xTaskGetTickCount();
-      if ((now - last_iwdg) >= pdMS_TO_TICKS(3000)) {
-        IWDG1->KR = 0xAAAA;
-        last_iwdg = now;
-      }
-    }
+    /* Every completed audio wait proves the main task is still progressing. */
+    IWDG1->KR = 0xAAAA;
+    RuntimeStage_Set(RUNTIME_STAGE_HEALTHY);
 
     if ((xTaskGetTickCount() - last_status_query) >= pdMS_TO_TICKS(10000)) {
       last_status_query = xTaskGetTickCount();
+      RuntimeStage_Set(RUNTIME_STAGE_WIFI);
       WifiIoT_QueryStatus();
     }
 
@@ -377,6 +387,7 @@ static void vAudioInferTask(void *pvParameters)
       dbfs = WindowDBFS(window);
       Ui_ShowStatus("ARMED", NULL, dbfs);
     } else {
+      RuntimeStage_Set(RUNTIME_STAGE_AUDIO_CAPTURE);
       float prob_cry = 0.0f;
       static const char *names[] = {"baby_cry", "other"};
       dbfs = WindowDBFS(window);
@@ -452,10 +463,12 @@ static void vAudioInferTask(void *pvParameters)
 
     if (automatic_capture_requested) CaptureAndPublish("cry", dbfs);
 
+    RuntimeStage_Set(RUNTIME_STAGE_WIFI);
     WifiIoT_Process(); WifiIoT_FlushPending();
 
     /* Handle remote commands from App (via MQTT → ESP → UART) */
     while (WifiIoT_HasCommand()) {
+      RuntimeStage_Set(RUNTIME_STAGE_COMMAND);
       const char *cmd = WifiIoT_PopCommand();
       if (!cmd) continue;
       if (strstr(cmd, "CAPTURE") || strstr(cmd, "capture")) {
@@ -499,6 +512,7 @@ static void vAudioInferTask(void *pvParameters)
 
     if ((xTaskGetTickCount() - last_mq135_read) >=
         pdMS_TO_TICKS(MQ135_READ_PERIOD_MS)) {
+      RuntimeStage_Set(RUNTIME_STAGE_MQ135);
       last_mq135_read = xTaskGetTickCount();
       uint16_t raw = 0;
       bool read_ok = Mq135_ReadRaw(&raw);
@@ -537,19 +551,24 @@ static void vAudioInferTask(void *pvParameters)
 
     if ((xTaskGetTickCount() - last_particle_read) >=
         pdMS_TO_TICKS(PARTICLE_READ_PERIOD_MS)) {
+      RuntimeStage_Set(RUNTIME_STAGE_PARTICLE);
       last_particle_read = xTaskGetTickCount();
       uint16_t raw = 0;
       bool read_ok = Gp2y1010_ReadRaw(&raw);
+      bool signal_present = read_ok && Gp2y1010_HasSignal();
       ParticleMonitorUpdate particle =
-          ParticleMonitor_Update(read_ok, raw);
+          ParticleMonitor_Update(signal_present, raw);
       TftUi_SetParticleQuality(particle.index, particle.ready,
                                particle.alert,
                                particle.phase == PARTICLE_PHASE_FAULT);
 
       static uint8_t particle_log_divider = 0;
-      if (++particle_log_divider >= 5U || particle.newly_alert ||
-          particle.newly_recovered || particle.fault_entered ||
-          particle.fault_recovered) {
+      bool log_particle = ++particle_log_divider >= 5U ||
+                          particle.newly_alert ||
+                          particle.newly_recovered ||
+                          particle.fault_entered ||
+                          particle.fault_recovered;
+      if (log_particle) {
         particle_log_divider = 0;
         printf("[PM] phase=%s raw=%u base=%u index=%.0f%s\r\n",
                ParticleMonitor_GetStateName(), (unsigned)particle.raw,
@@ -583,6 +602,7 @@ static void vAudioInferTask(void *pvParameters)
     }
 
     if ((xTaskGetTickCount() - last_env_read) >= pdMS_TO_TICKS(ENV_READ_PERIOD_MS)) {
+      RuntimeStage_Set(RUNTIME_STAGE_DHT11);
       last_env_read = xTaskGetTickCount();
       float temp_c = 0.0f, humi_pct = 0.0f;
       bool dht_read_ok = DHT11_Read(&temp_c, &humi_pct);
@@ -703,15 +723,18 @@ static void vAudioInferTask(void *pvParameters)
              (unsigned)WifiIoT_GetRxOverflow(),
              (unsigned)WifiIoT_GetPendingCount());
     }
+    RuntimeStage_Set(RUNTIME_STAGE_HEALTHY);
   }
 }
 
 void vApplicationTickHook(void) {}
 void vApplicationMallocFailedHook(void) {
+  RuntimeFault_Record(RUNTIME_STAGE_MALLOC_FAILED, 0U, 0U);
   printf("\r\n[PANIC] FreeRTOS heap exhausted\r\n");
   __disable_irq(); for (;;) {}
 }
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+  RuntimeFault_Record(RUNTIME_STAGE_STACK_OVERFLOW, (uint32_t)xTask, 0U);
   (void)xTask; printf("\r\n[PANIC] %s\r\n", pcTaskName);
   __disable_irq(); for (;;) {}
 }

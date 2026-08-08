@@ -65,6 +65,19 @@ void FreeRTOS_Init(void);
 
 /* USER CODE BEGIN PV */
 
+#define RUNTIME_TRACE_MAGIC 0x41494852UL
+
+typedef struct {
+  uint32_t magic;
+  uint32_t stage;
+  uint32_t stage_inverse;
+  uint32_t detail0;
+  uint32_t detail1;
+} RuntimeTrace;
+
+__attribute__((section(".noinit"), used))
+static volatile RuntimeTrace runtime_trace;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -72,10 +85,70 @@ void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
 
+static void Watchdog_Configure(uint32_t prescaler, uint32_t reload);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void RuntimeStage_Set(RuntimeStage stage)
+{
+  runtime_trace.magic = RUNTIME_TRACE_MAGIC;
+  runtime_trace.detail0 = 0U;
+  runtime_trace.detail1 = 0U;
+  runtime_trace.stage = (uint32_t)stage;
+  runtime_trace.stage_inverse = ~((uint32_t)stage);
+  __DMB();
+}
+
+void RuntimeFault_Record(RuntimeStage stage, uint32_t detail0,
+                         uint32_t detail1)
+{
+  runtime_trace.magic = RUNTIME_TRACE_MAGIC;
+  runtime_trace.detail0 = detail0;
+  runtime_trace.detail1 = detail1;
+  runtime_trace.stage = (uint32_t)stage;
+  runtime_trace.stage_inverse = ~((uint32_t)stage);
+  __DMB();
+}
+
+uint32_t RuntimeStage_GetPreserved(uint32_t *detail0, uint32_t *detail1)
+{
+  uint32_t stage = runtime_trace.stage;
+  if (runtime_trace.magic != RUNTIME_TRACE_MAGIC ||
+      runtime_trace.stage_inverse != ~stage) {
+    return (uint32_t)RUNTIME_STAGE_UNKNOWN;
+  }
+  if (detail0 != NULL) *detail0 = runtime_trace.detail0;
+  if (detail1 != NULL) *detail1 = runtime_trace.detail1;
+  return stage;
+}
+
+const char *RuntimeStage_Name(uint32_t stage)
+{
+  static const char *const names[] = {
+    "UNKNOWN", "BOOT", "AUDIO_WAIT", "AUDIO_CAPTURE", "INFERENCE",
+    "WIFI", "COMMAND", "CAMERA_CAPTURE", "CAMERA_DISPLAY",
+    "CAMERA_UPLOAD", "MQ135", "PARTICLE", "DHT11", "UI", "HEALTHY",
+    "ERROR_HANDLER", "HARDFAULT", "MEMFAULT", "BUSFAULT", "USAGEFAULT",
+    "STACK_OVERFLOW", "MALLOC_FAILED"
+  };
+  return stage < (sizeof(names) / sizeof(names[0])) ? names[stage] : "INVALID";
+}
+
+static void Watchdog_Configure(uint32_t prescaler, uint32_t reload)
+{
+  /* A running IWDG keeps its old deadline while PR/RLR synchronize to LSI. */
+  IWDG1->KR = 0xAAAA;
+  IWDG1->KR = 0xCCCC;
+  IWDG1->KR = 0x5555;
+  IWDG1->PR = prescaler;
+  IWDG1->RLR = reload;
+  uint32_t wait = 1000000U;
+  while ((IWDG1->SR & (IWDG_SR_PVU | IWDG_SR_RVU)) != 0U && --wait != 0U) {}
+  IWDG1->KR = 0xAAAA;
+}
 
 /* USER CODE END 0 */
 
@@ -98,6 +171,9 @@ int main(void)
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
   uint32_t reset_flags = RCC->RSR;
+  uint32_t previous_detail0 = 0U, previous_detail1 = 0U;
+  uint32_t previous_stage =
+      RuntimeStage_GetPreserved(&previous_detail0, &previous_detail1);
 
   /* USER CODE BEGIN Init */
 
@@ -110,14 +186,10 @@ int main(void)
   /* AXI SRAM cold-boot: clear all 512KB for ECC parity init */
   memset((void *)0x24000000, 0, 512 * 1024);
 
-  /* Boot watchdog: auto-retry if cold boot hangs (~1.5s) */
+  /* Boot watchdog: leave enough margin for cold peripheral initialization. */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
-  IWDG1->KR = 0x5555;
-  IWDG1->PR = 4;               /* /64 = 500Hz (LSI=32kHz) */
-  IWDG1->RLR = 750;             /* 750/500Hz = 1.5s */
-  IWDG1->KR = 0xAAAA;
-  IWDG1->KR = 0xCCCC;
+  Watchdog_Configure(6U, 499U); /* nominal 4s at LSI=32kHz */
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -145,6 +217,12 @@ int main(void)
          (reset_flags & RCC_RSR_PINRSTF) ? " PIN" : "",
          (reset_flags & RCC_RSR_SFTRSTF) ? " SOFTWARE" : "",
          (reset_flags & RCC_RSR_IWDG1RSTF) ? " IWDG1" : "");
+  if (previous_stage != (uint32_t)RUNTIME_STAGE_UNKNOWN) {
+    printf("[BOOT] previous_stage=%s(%lu) detail0=0x%08lX detail1=0x%08lX\r\n",
+           RuntimeStage_Name(previous_stage), (unsigned long)previous_stage,
+           (unsigned long)previous_detail0, (unsigned long)previous_detail1);
+  }
+  RuntimeStage_Set(RUNTIME_STAGE_BOOT);
   __HAL_RCC_CLEAR_RESET_FLAGS();
   Audio_Init();
   Alarm_Init();
@@ -206,14 +284,11 @@ int main(void)
   HAL_Delay(1000);
   printf("[AUDIO] Ready.\r\n");
 
-  /* IWDG: ~8s watchdog, auto-reset if main loop hangs */
+  /* Runtime IWDG: nominal 32s. Snapshot upload is bounded to 15s, so the
+     watchdog must remain longer even on boards whose LSI runs above 32kHz. */
   __HAL_RCC_LSI_ENABLE();
   while (!__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY)) {}
-  IWDG1->KR = 0x5555;   /* Unlock */
-  IWDG1->PR = 6;        /* /256 = 125Hz from 32kHz */
-  IWDG1->RLR = 999;     /* 999/125 = ~8s */
-  IWDG1->KR = 0xAAAA;   /* Reload */
-  IWDG1->KR = 0xCCCC;   /* Start */
+  Watchdog_Configure(6U, 3999U);
 
   /* USER CODE END 2 */
 
@@ -328,6 +403,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  RuntimeFault_Record(RUNTIME_STAGE_ERROR_HANDLER, 0U, 0U);
   __disable_irq();
   while (1)
   {

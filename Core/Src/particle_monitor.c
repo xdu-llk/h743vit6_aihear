@@ -4,12 +4,12 @@
 
 #define PARTICLE_BASELINE_SAMPLES 10U
 #define PARTICLE_MEDIAN_SAMPLES    5U
-#define PARTICLE_CONFIRM_SAMPLES   5U
+#define PARTICLE_CONFIRM_SAMPLES   7U
 #define PARTICLE_FAULT_SAMPLES     3U
 #define PARTICLE_RAW_VALID_MIN    16U
 #define PARTICLE_RAW_VALID_MAX 65519U
-#define PARTICLE_ALERT_INDEX     140.0f
-#define PARTICLE_CLEAR_INDEX     120.0f
+#define PARTICLE_ALERT_INDEX     180.0f
+#define PARTICLE_CLEAR_INDEX     130.0f
 #define PARTICLE_FILTER_ALPHA      0.35f
 #define PARTICLE_BASELINE_ALPHA    0.001f
 
@@ -79,6 +79,8 @@ ParticleMonitorUpdate ParticleMonitor_Update(bool sample_valid, uint16_t raw)
   events.newly_recovered = 0;
   events.fault_entered = 0;
   events.fault_recovered = 0;
+  s_state.raw = raw;
+  events.raw = raw;
 
   sample_valid = sample_valid && raw > PARTICLE_RAW_VALID_MIN &&
                  raw < PARTICLE_RAW_VALID_MAX;
@@ -102,9 +104,6 @@ ParticleMonitorUpdate ParticleMonitor_Update(bool sample_valid, uint16_t raw)
   }
 
   s_invalid_streak = 0;
-  s_state.raw = raw;
-  events.raw = raw;
-
   if (s_state.phase == PARTICLE_PHASE_FAULT) {
     if (s_valid_streak < PARTICLE_FAULT_SAMPLES) s_valid_streak++;
     if (s_valid_streak < PARTICLE_FAULT_SAMPLES) return events;

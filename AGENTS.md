@@ -8,25 +8,21 @@
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
-| STM32 固件 | 阶段2.3基础实板与环境链路通过 | 最终固件已烧录；音频DMA自恢复、环境链路、TFT和有界抓拍已合入，原厂FPC外设待实测 |
-| ESP8266 | bridge-v5构建通过；两台隔离验证通过 | `aihear_03cb03`已烧录v5；`aihear_876f07`仍为v4并需升级v5 |
+| STM32 固件 | 阶段2.4焊接整机通过 | 2026-08-08抓拍看门狗修正版已烧录；连续5次抓拍、TFT预览、MQTT分片与Broker端JPEG/CRC校验通过，无异常复位 |
+| ESP8266 | 两台bridge-v5实板通过 | 两台均已烧录、联网，设备ID隔离、UART/MQTT、断线恢复和真实照片分片链路均已验证 |
 | Android App | ✅ 最终候选APK与桥接回归通过 | 4Tab、多设备控制、JPEG/CRC校验、原生DeepSeek HTTPS、抓拍等待态；v2/v3签名有效 |
-| TFT | 原生DISPLAY FPC固件完成/待实物验证 | PE11/PE12/PE14/PE15/PD15；无硬件RES，增加软件复位；通用8针屏此前实板通过 |
-| OV2640 | 驱动与有界抓拍流程完成/待实物验证 | 240x240 RGB565本地显示、320x240 JPEG、60KB上限、15秒上传上限；缺席不影响告警优先发送 |
+| TFT | 原厂DISPLAY FPC实板通过 | PE11/PE12/PE14/PE15/PD15；无硬件RES，软件复位；状态页、环境刷新和抓拍预览已验证 |
+| OV2640 | 原厂CAMERA FPC实板通过 | 240x240 RGB565本地显示、320x240 JPEG、60KB上限、15秒上传上限和App真实照片显示均已验证 |
 | 训练管线 | 二分类基线 | INT8量化；99.67%为历史验证集结果，不作为独立实测准确率 |
 | PCB+外壳 | 用户按实物自行收口 | FPC不经过载板；软件侧只维护最终引脚、供电和布置约束 |
 | GitHub | ✅ 已推送 | https://github.com/xdu-llk/h743vit6_aihear |
 
 ## 待处理
 
-1. TFT到货后只连接原厂FPC TFT，验证方向、颜色、状态变化和温湿度2秒刷新；无需重新烧录即可先看首版界面
-2. OV2640到货后验证SCCB ID、RGB方向/字节序、补光、JPEG大小与抓拍耗时，再联调TFT显示
-3. 将`aihear_876f07`升级到bridge-v5并安装最新APK，完成真实照片的设备隔离、分片上传和App显示验证
-4. 全部模块装齐后连续运行30-60分钟，并继续累计STM32/ESP8266单独复位后的PA2自动恢复测试
-5. 焊接GP2Y适配板排针后复测长期稳定性；真实烟尘与气体刺激暂不作为当前阻塞项
-6. 按实物卡尺尺寸和1:1纸样自行完成EDA Gerber与外壳STL，确保两组FPC可插拔且不急弯
-7. MQ-135 AO直连PA3存在高浓度时超过H7 ADC 3.3V范围的已知演示风险
-8. 国赛阶段保持二分类，多分类不进入当前关键路径
+1. 按实物卡尺尺寸和1:1纸样自行完成EDA Gerber与外壳STL，确保两组FPC可插拔且不急弯
+2. MQ-135 AO直连PA3存在高浓度时超过H7 ADC 3.3V范围的已知演示风险
+3. 公网MQTT使用QoS 0，30分钟老化中出现1次本地发布失败但后续自动恢复；演示前必须确认App在线
+4. 国赛阶段保持二分类，多分类不进入当前关键路径
 
 ---
 
@@ -50,16 +46,16 @@ prob≥90%立即告警；75%~90%进入真实200ms时序复核 → 本地声光/T
 
 | 文件 | 作用 | 技术要点 |
 |------|------|----------|
-| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG |
+| `Core/Src/main.c` | 入口，HAL初始化 | 时钟480MHz (HSE=25MHz, M=5/N=192/P=2)、MPU、IWDG；启动期约4秒标称、运行期约32秒标称 |
 | `Core/Src/freertos.c` | 主任务调度 | 幅度门控、概率分级、真实200ms时序复核、30秒栈/heap健康日志 |
 | `Core/Src/audio.c` | I2S DMA音频采集 | DMA双缓冲+环形缓冲+不可变推理快照、24bit I2S解码；3秒无进度自动重启DMA，主任务不再无限等待通知 |
 | `Core/Src/audio_preproc.cc` | 特征提取 | 512ptFFT(CMSIS-DSP)+Mel滤波+Z-score归一化，与Python训练pipeline严格对齐 |
 | `Core/Src/tflm_runner.cc` | TFLM推理 | CMSIS-NN加速、512KB tensor arena(AXI SRAM)、动态量化参数 |
-| `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议 |
+| `Core/Src/wifi_iot.c` | ESP8266通信 | UART4 1024字节循环DMA+D-Cache维护+行解析、+PUB协议；照片分片逐片确认、15秒上传上限与阶段喂狗 |
 | `Core/Src/camera.c` | OV2640事件抓拍 | 软件SCCB、DCMI+DMA2、有界RGB/JPEG采集、超时后DMA恢复、缺席快速降级 |
 | `Core/Src/alarm.c` | 告警状态机 | C99查找表驱动6状态，含独立ENV_ALERT无蜂鸣状态 |
 | `Core/Src/mq135.c` / `mq135_monitor.c` | MQ-135采集与状态机 | PA3 ADC1，通道切换后丢弃首样本、16次均值、120秒预热+60样本稳健动态基线（约179秒就绪）、EMA、5次确认、回差恢复；只显示相对指数 |
-| `Core/Src/gp2y1010.c` / `particle_monitor.c` | 颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，每秒9个厂家时序脉冲取中值，再做5点跨秒中值、10点基线、EMA、5次确认与回差恢复；只显示相对指数 |
+| `Core/Src/gp2y1010.c` / `particle_monitor.c` | GP2Y1014AU0F颗粒物采集与状态机 | PC1 ADC1+PD7 ILED，每秒9次开灯前/开灯后配对采样，以脉冲差值中值抑制供电偏移，再做5点跨秒中值、10点基线、EMA、180%阈值、7次确认与回差恢复；只显示相对指数 |
 | `Core/Src/dscnn_model.cc` | 模型权重 | 102592字节全INT8 TFLite模型，2分类 |
 
 ### 内存布局
@@ -194,10 +190,10 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 | 蜂鸣器 | PB0 (H2-23, TIM3 PWM) | OCPOLARITY_LOW |
 | ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板DISPLAY FPC；无RES/MISO |
 | MQ-135 | PA3(AO/H2-32) | ADC12_INP15，DO不接；直连存在超过3.3V风险 |
-| GP2Y1010 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲 |
-| 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位H7；KEY2长按配网 |
+| GP2Y1014AU0F + PM2.5 V2.1适配板 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲；5V供电 |
+| KEY2 | ESP GPIO0→GND | 长按5秒重新配网；载板不设置H7复位按键 |
 | USB-TTL | PA9(TX/H3-10) PA10(RX/H3-9) | 调试串口 CH340 |
-| ST-Link | SWDIO/SWCLK/GND/3.3V | |
+| ST-Link | SWDIO/SWCLK/GND/3.3V参考电压 | 仅调试，不连接ST-Link 5V给整机供电 |
 
 完整载板排母、CAMERA FPC、板载占线和布局限制以 `docs/hardware_pin_plan.md` 为准。
 厂家VIT6原理图中的两侧扩展排针为 `H2/H3`，均为 `2x20P`；旧的`J2/J3`或`2x22`编号不得继续使用。
@@ -209,7 +205,7 @@ WeightedRandomSampler + CrossEntropyLoss(weight) + MixUp(α=0.2) + SpecAugment +
 | 设备ID | MAC | 状态 |
 |---|---|---|
 | `aihear_03cb03` | `2c:3a:e8:03:cb:03` | bridge-v5已烧录，精确ID隔离通过 |
-| `aihear_876f07` | `84:f3:eb:87:6f:07` | bridge-v4已烧录，精确ID隔离通过；待升级v5 |
+| `aihear_876f07` | `84:f3:eb:87:6f:07` | bridge-v5已烧录、联网，UART/MQTT与照片链路验证通过 |
 
 ---
 

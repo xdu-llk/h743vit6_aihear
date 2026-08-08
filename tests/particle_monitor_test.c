@@ -27,16 +27,24 @@ int main(void)
     assert(update.confirm_count == 0U);
   }
 
+  /* The optical module has broad natural variance. A sustained 160% trend
+     remains below the final alert boundary and must not produce an alert. */
+  for (int i = 0; i < 20; i++) {
+    update = ParticleMonitor_Update(true, 3200U);
+    assert(update.alert == 0U);
+    assert(update.confirm_count == 0U);
+  }
+
   uint8_t alerted = 0;
-  for (int i = 0; i < 10; i++) {
-    update = ParticleMonitor_Update(true, 3000);
+  for (int i = 0; i < 18; i++) {
+    update = ParticleMonitor_Update(true, 4400U);
     alerted |= update.newly_alert;
   }
   assert(alerted == 1U && update.alert == 1U);
 
   uint8_t recovered = 0;
-  for (int i = 0; i < 12; i++) {
-    update = ParticleMonitor_Update(true, 2000);
+  for (int i = 0; i < 18; i++) {
+    update = ParticleMonitor_Update(true, 2000U);
     recovered |= update.newly_recovered;
   }
   assert(recovered == 1U && update.alert == 0U);

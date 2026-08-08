@@ -6,5 +6,6 @@
 
 bool Gp2y1010_Init(void);
 bool Gp2y1010_ReadRaw(uint16_t *raw);
+bool Gp2y1010_HasSignal(void);
 
 #endif

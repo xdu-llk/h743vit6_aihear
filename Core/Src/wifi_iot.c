@@ -79,6 +79,7 @@ static void PublishRaw(const char *topic, const char *payload)
 static bool PublishRawAndWait(const char *topic, const char *payload,
                               WifiIoTServiceFn service)
 {
+  IWDG1->KR = 0xAAAA;
   WifiIoT_Process();
   uint32_t ack_before = last_puback_seq;
   PublishRaw(topic, payload);
@@ -139,6 +140,7 @@ bool WifiIoT_PublishSnapshot(const uint8_t *jpeg, size_t length,
   char payload[384];
 
   for (uint32_t seq = 0; seq < total; ++seq) {
+    IWDG1->KR = 0xAAAA;
     if ((HAL_GetTick() - upload_started) >= SNAPSHOT_UPLOAD_TIMEOUT_MS)
       return false;
     size_t offset = (size_t)seq * SNAPSHOT_CHUNK_BYTES;
@@ -150,6 +152,11 @@ bool WifiIoT_PublishSnapshot(const uint8_t *jpeg, size_t length,
                            (unsigned long)total, (unsigned long)crc, encoded);
     if (written <= 0 || written >= (int)sizeof(payload) ||
         !PublishRawAndWait("aihear/snapshot", payload, service)) return false;
+    if (seq == 0U || (seq + 1U) == total || ((seq + 1U) % 16U) == 0U) {
+      printf("[SNAP] id=%s chunk=%lu/%lu elapsed=%lums\r\n", capture_id,
+             (unsigned long)(seq + 1U), (unsigned long)total,
+             (unsigned long)(HAL_GetTick() - upload_started));
+    }
   }
   return true;
 }
@@ -188,7 +195,9 @@ static void invalidate_dma_chunk(uint32_t offset, uint32_t length)
   uintptr_t end = start + length;
   start &= ~(uintptr_t)31U;
   end = (end + 31U) & ~(uintptr_t)31U;
-  SCB_InvalidateDCache_by_Addr((uint32_t *)start, (int32_t)(end - start));
+  if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
+    SCB_InvalidateDCache_by_Addr((uint32_t *)start, (int32_t)(end - start));
+  }
 }
 
 static void invalidate_dma_range(uint32_t offset, uint32_t length)

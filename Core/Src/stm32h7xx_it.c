@@ -119,7 +119,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  RuntimeFault_Record(RUNTIME_STAGE_MEMFAULT, SCB->CFSR, SCB->MMFAR);
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -134,7 +134,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  RuntimeFault_Record(RUNTIME_STAGE_BUSFAULT, SCB->CFSR, SCB->BFAR);
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -149,7 +149,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  RuntimeFault_Record(RUNTIME_STAGE_USAGEFAULT, SCB->CFSR, 0U);
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -290,7 +290,7 @@ void TIM6_DAC_IRQHandler(void)
 /* Called from HardFault_Handler ASM with r0 = stacked frame pointer.
    Prints fault registers then loops forever. */
 void hard_fault_printer(unsigned long *stacked) {
-  (void)stacked;
+  RuntimeFault_Record(RUNTIME_STAGE_HARDFAULT, stacked[6], SCB->CFSR);
   /* Use direct USART1 TX for crash output (printf may depend on interrupted state) */
   const char *msg = "\r\n[HARDFAULT]\r\n";
   for (const char *p = msg; *p; p++) {

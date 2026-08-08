@@ -308,7 +308,9 @@ static bool capture_dma(uint8_t *buffer, uint32_t capacity,
   frame_bytes = 0;
   capture_capacity_words = capacity / 4U;
   memset(buffer, 0, capacity);
-  SCB_CleanInvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
+  if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
+    SCB_CleanInvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
+  }
 
   __HAL_DCMI_DISABLE_IT(&hdcmi, DCMI_IT_FRAME);
   __HAL_DCMI_CLEAR_FLAG(&hdcmi, DCMI_FLAG_FRAMERI | DCMI_FLAG_OVRRI |
@@ -334,7 +336,9 @@ static bool capture_dma(uint8_t *buffer, uint32_t capacity,
                         DCMI_FLAG_ERRRI | DCMI_FLAG_VSYNCRI | DCMI_FLAG_LINERI);
   if (!ok) return false;
   if (!variable_length) frame_bytes = capacity;
-  SCB_InvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
+  if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
+    SCB_InvalidateDCache_by_Addr((uint32_t *)buffer, (int32_t)capacity);
+  }
   return true;
 }
 
@@ -382,6 +386,9 @@ CameraCaptureResult Camera_CaptureEvent(uint32_t frame_timeout_ms,
   HAL_Delay(120);
 
   if (!set_rgb_mode()) goto io_error;
+  /* OV2640 applies a pixel-format change on a frame boundary. Allow the
+     first RGB frame after the previous JPEG capture to settle. */
+  HAL_Delay(40);
   if (!capture_dma(rgb_buffer, sizeof(rgb_buffer), frame_timeout_ms, false,
                    service)) {
     HAL_GPIO_WritePin(CAM_FLASH_PORT, CAM_FLASH_PIN, GPIO_PIN_RESET);

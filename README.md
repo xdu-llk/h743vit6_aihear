@@ -6,26 +6,28 @@
 
 ---
 
-## 当前状态（2026-08-01）
+## 当前状态（2026-08-08）
 
 | 模块 | 状态 | 已验证范围 / 待完成项 |
 |---|---|---|
-| STM32H743 固件 | 基础实板通过 | 最终固件已编译并烧录；音频、DHT11、MQ-135、GP2Y1010、告警通信链路正常。原厂 FPC TFT 与 OV2640 待到货实测 |
-| ESP8266 | bridge-v5 已构建 | `aihear_03cb03` 已烧录 v5；`aihear_876f07` 已通过 v4 多设备隔离验证，仍需升级 v5 |
-| Android App | 构建与回归通过 | APK v2/v3 签名有效；多设备控制、照片分片校验与 WebView 页面回归通过，真实相机照片待联调 |
-| 环境监测 | 基础实板通过 | MQ-135 使用 120 秒预热 + 60 个采样建立动态基线，约 179 秒就绪；GP2Y1010 固定接线下连续约 110 秒无误报 |
-| PCB 与外壳 | 已完成设计 | 最终装配后仍需进行 30–60 分钟整机供电、温升和复位恢复测试 |
+| STM32H743 固件 | 阶段2.4焊接整机通过 | 抓拍看门狗修正版已烧录；连续5次抓拍、TFT预览、MQTT分片与Broker端JPEG/CRC校验通过，无异常复位 |
+| ESP8266 | 两台 bridge-v5 实板通过 | 两台均已烧录并联网；设备ID隔离、UART/MQTT、断线恢复和真实照片分片链路均已验证 |
+| Android App | 构建与实机链路通过 | APK v2/v3签名、多设备控制、通知、照片分片校验和真实照片显示均已验证 |
+| 环境监测 | 实板静置回归通过 | MQ-135约179秒建立动态基线；GP2Y1014AU0F使用开灯前/后配对差值与动态基线，180%阈值连续7秒确认，150秒静置无误报警 |
+| PCB 与外壳 | 按实物收口中 | 软件侧引脚与FPC约束已冻结；需按实物尺寸完成载板、外壳及30–60分钟整机测试 |
 
-当前 STM32 构建产物为 `481752B` BIN；ELF 为 text `481248B`、data `496B`、bss `931560B`。实板健康日志观测到 `stack_free≈14192B`、`heap_min=14384B`、`uart_ovf=0`。
+当前STM32构建产物为`483568B` BIN；ELF为text `483064B`、data `496B`、bss `931576B`。焊接整机抓拍后的健康日志保持`stack_free=14036B`、`heap_min=14384B`、`uart_ovf=0`、`pending=0`。
 
-> `99.67%`仅是历史验证集结果，不代表独立设备现场实测准确率。MQ-135 与 GP2Y1010 未做标准气体/颗粒物标定，界面只显示相对基线指数，不显示 ppm 或精确 PM2.5 浓度。
+> `99.67%`仅是历史验证集结果，不代表独立设备现场实测准确率。MQ-135与GP2Y1014AU0F未做标准气体/颗粒物标定，界面只显示相对基线指数，不显示ppm或精确PM2.5浓度。整机必须由开发板USB-C 5V供电，ST-Link不得承担整机5V供电。
+>
+> 公网Broker使用QoS 0。30分钟老化中出现1次ESP本地发布失败，后续状态自动恢复且没有队列积压；现场演示前必须先确认App显示设备在线，再触发哭声告警。
 
 ---
 
 ## 功能特性
 
 - 🍼 **婴儿哭声实时检测** — H743板端全INT8 DS-CNN推理，概率分级与真实时序复核
-- 🌡️ **环境安全监护** — DHT11固定阈值 + MQ-135/GP2Y1010动态基线，独立确认与恢复
+- 🌡️ **环境安全监护** — DHT11固定阈值 + MQ-135/GP2Y1014AU0F动态基线，独立确认与恢复
 - 📷 **事件抓拍** — 哭声告警触发OV2640单帧抓拍，TFT本地预览并向App分片上传
 - 🏠 **多房间统一管理** — 单 App 同时监视多台设备，MQTT 设备级 topic 隔离
 - 📊 **数据看板** — Chart.js 双折线图 (7天哭声+喂养 / 24h温湿度)
@@ -45,7 +47,7 @@ INMP441麦克风 → I2S(PD4/PD0/PD1) → SAI3 DMA双缓冲 → 环形缓冲(163
   ↓
 概率分级与200ms复核 → 蜂鸣器+RGB LED+TFT → UART→ESP8266→MQTT→Android App (通知+震动)
   ↓
-DHT11 温湿度 @2s + GP2Y1010 + MQ-135 → TFT实时刷新+持续异常确认 → 环境告警链路
+DHT11 温湿度 @2s + GP2Y1014AU0F + MQ-135 → TFT实时刷新+持续异常确认 → 环境告警链路
 ```
 
 ---
@@ -57,12 +59,12 @@ DHT11 温湿度 @2s + GP2Y1010 + MQ-135 → TFT实时刷新+持续异常确认 �
 | 主控 | STM32H743VIT6 核心板 (鹿小班 V2.0) | 1 | HSE=25MHz, PLL→480MHz |
 | 麦克风 | INMP441 I2S MEMS | 1 | SAI3, 16kHz |
 | WiFi | ESP8266-01S | 1 | 可拆插座 |
-| 环境 | DHT11 + GP2Y1010适配板 + MQ-135模块 | 各1 | 温湿度、颗粒物与相对空气质量趋势 |
+| 环境 | DHT11 + GP2Y1014AU0F + PM2.5 V2.1适配板 + MQ-135模块 | 各1 | 温湿度、颗粒物与相对空气质量趋势 |
 | 摄像头 | OV2640 双补光模块 | 1 | CAMERA FPC，事件抓拍 |
 | 显示 | 鹿小班1.54英寸 ST7789兼容 240×240 | 1 | 开发板 DISPLAY FPC，SPI4 |
 | 指示灯 | RGB LED 共阴模块 | 1 | 模块板载限流电阻 |
 | 蜂鸣器 | 低电平触发无源蜂鸣器模块 | 1 | TIM3 PWM非阻塞旋律 |
-| 按键 | 6×6mm 轻触按键 | 2 | KEY1硬复位H7，KEY2长按重新配网 |
+| 按键 | 6×6mm 轻触按键 | 1 | KEY2长按重新配网；载板不设置H7复位按键 |
 | 调试器 | ST-Link V2 | 1 | |
 
 ### 文档导航
@@ -175,7 +177,7 @@ h743vit6_aihear/
 | 音频采集 | `audio.c` | SAI3 DMA双缓冲、Cache一致性(`SCB_InvalidateDCache`)、24bit I2S→int32 |
 | 特征提取 | `audio_preproc.cc` | CMSIS-DSP 512pt FFT + 40×257 Mel 滤波 + per-sample Z-score |
 | 模型推理 | `tflm_runner.cc` | TFLite Micro + CMSIS-NN, 512KB tensor arena (AXI SRAM), INT8 动态量化 |
-| 任务调度 | `freertos.c` | 单任务 + `vTaskNotifyGiveFromISR` 唤醒，IWDG约1.5s；长操作周期喂狗 |
+| 任务调度 | `freertos.c` | 单任务 + `vTaskNotifyGiveFromISR`唤醒；IWDG启动期约4秒标称、运行期约32秒标称，抓拍/显示/上传分阶段喂狗 |
 | 告警控制 | `alarm.c` | 6 状态查找表: IDLE/ARMED/DETECTING/ALERT/RECOVERY/ENV_ALERT |
 | WiFi通信 | `wifi_iot.c` | UART4 1024B循环DMA+行解析, `+PUB:topic:payload` 协议 |
 | 温湿度 | `dht11.c` | DWT 微秒级 bit-bang, 关中断读 40bit |
@@ -196,7 +198,7 @@ temp > 30°C → temp_high (RGB 红灯, 蜂鸣器不响, STM32每5min最多重�
 temp < 16°C → temp_low
 humi > 80%  → humi_high
 humi < 30%  → humi_low
-MQ-135与GP2Y1010按动态基线确认持续异常
+MQ-135与GP2Y1014AU0F按动态基线确认持续异常
 Android对环境异常锁存，恢复前只弹一次通知
 婴儿哭优先级高于环境告警
 ```
@@ -242,12 +244,12 @@ Broker Payload 格式：
 | OV2640 | 开发板 CAMERA 24P FPC | PB8/PB9 SCCB + 8-bit DCMI，逐脚表见硬件文档 |
 | ST7789 | PE12(SCK) PE14(MOSI) PE11(CS) PE15(DC) PD15(BL) | 开发板 DISPLAY 10P FPC，SPI4，3.3V |
 | MQ-135 | PA3(AO/H2-32) | ADC12_INP15，DO不接 |
-| GP2Y1010 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲 |
+| GP2Y1014AU0F + PM2.5 V2.1适配板 | PC1(AO/H3-14) PD7(ILED/H3-21) | ADC123_INP11 + LED采样脉冲；5V供电 |
 | RGB LED | PB4(R/H3-23) PB5(G/H3-24) PB3(B/H3-22) | 共阴模块，三路相邻 |
 | 蜂鸣器 | PB0 (H2-23, TIM3 PWM) | OCPOLARITY_LOW |
-| 按键 | RST→GND；ESP GPIO0→GND | KEY1硬复位；KEY2长按配网 |
+| KEY2 | ESP GPIO0→GND | 长按5秒重新配网；不接H7 |
 | USB-TTL | PA9(TX/H3-10) PA10(RX/H3-9) | 调试串口 CH340 |
-| ST-Link | SWDIO/SWCLK/GND/3.3V | |
+| ST-Link | SWDIO/SWCLK/GND/3.3V参考电压 | 仅调试；不得连接ST-Link 5V为整机供电 |
 
 完整载板排母、CAMERA FPC、板载占线和布局限制见 [hardware_pin_plan.md](docs/hardware_pin_plan.md)。
 厂家VIT6原理图中的两侧扩展排针为 `H2/H3`，均为 `2x20P`。
@@ -259,7 +261,7 @@ Broker Payload 格式：
 | 设备ID | MAC | 当前固件状态 |
 |---|---|---|
 | `aihear_03cb03` | `2c:3a:e8:03:cb:03` | bridge-v5 已烧录 |
-| `aihear_876f07` | `84:f3:eb:87:6f:07` | bridge-v4 隔离验证通过，待升级 bridge-v5 |
+| `aihear_876f07` | `84:f3:eb:87:6f:07` | bridge-v5已烧录、联网，UART/MQTT与照片链路验证通过 |
 
 ---
 

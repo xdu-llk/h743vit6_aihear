@@ -186,6 +186,14 @@ SECTIONS
     __bss_end__ = _ebss;
   } >DTCMRAM
 
+  /* Retained across system/IWDG reset for the last execution-stage breadcrumb. */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.noinit)
+    . = ALIGN(4);
+  } >DTCMRAM
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {

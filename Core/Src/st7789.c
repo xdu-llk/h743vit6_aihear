@@ -210,15 +210,26 @@ bool ST7789_DrawRgb565(uint16_t x, uint16_t y, uint16_t width,
 
   Select();
   HAL_GPIO_WritePin(LCD_DC_PORT, LCD_DC_PIN, GPIO_PIN_SET);
+  uint8_t wire_pixels[LCD_PIXEL_CHUNK * 2U];
   while (required != 0U) {
-    uint16_t chunk = required > 4096U ? 4096U : (uint16_t)required;
-    if (!Transmit(pixels, chunk)) {
+    IWDG1->KR = 0xAAAA;
+    uint16_t chunk = required > sizeof(wire_pixels)
+                         ? (uint16_t)sizeof(wire_pixels)
+                         : (uint16_t)required;
+    /* DCMI stores each RGB565 halfword little-endian. ST7789 expects the
+       pixel's most-significant byte first on its 8-bit SPI wire. */
+    for (uint16_t i = 0U; i < chunk; i += 2U) {
+      wire_pixels[i] = pixels[i + 1U];
+      wire_pixels[i + 1U] = pixels[i];
+    }
+    if (!Transmit(wire_pixels, chunk)) {
       Deselect();
       return false;
     }
     pixels += chunk;
     required -= chunk;
   }
+  IWDG1->KR = 0xAAAA;
   Deselect();
   return true;
 }

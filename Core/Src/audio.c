@@ -49,7 +49,9 @@ static inline int32_t i2s_to_pcm(uint32_t raw)
 
 static void copy_to_ring(const uint32_t *src, int count)
 {
-  SCB_InvalidateDCache_by_Addr((uint32_t *)src, count * 4);
+  if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
+    SCB_InvalidateDCache_by_Addr((uint32_t *)src, count * 4);
+  }
   for (int i = 0; i < count; i++) {
     ring[wr] = i2s_to_pcm(src[i]);
     wr = (wr + 1) & (RING_BUF_SIZE - 1);
