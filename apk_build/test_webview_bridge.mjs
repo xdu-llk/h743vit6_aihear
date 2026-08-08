@@ -256,6 +256,42 @@ async function main() {
     "document.querySelector('#snapshotImage')?.complete && document.querySelector('#snapshotImage')?.naturalWidth > 0",
     "Bridge JPEG did not decode",
   );
+
+  const dashboardState = await evaluate(`({
+    deviceCards: document.querySelectorAll('#deviceStrip .device-overview').length,
+    selectedDevice: document.querySelector('#deviceInfo').textContent,
+    temp: document.querySelector('#envTemp .value').textContent,
+    humi: document.querySelector('#envHumi .value').textContent,
+    pm: document.querySelector('#envPm .value').textContent,
+    gas: document.querySelector('#envGas .value').textContent
+  })`);
+  const dashboardShot = await screenshot("ui-qa-dashboard.png");
+
+  await evaluate("selectDevice('aihear_876f07')");
+  await waitUntil(
+    "document.querySelector('#deviceInfo').textContent === 'aihear_876f07'",
+    "Second device did not become active",
+  );
+  const secondDeviceState = await evaluate(`({
+    selectedDevice: document.querySelector('#deviceInfo').textContent,
+    temp: document.querySelector('#envTemp .value').textContent,
+    humi: document.querySelector('#envHumi .value').textContent,
+    pm: document.querySelector('#envPm .value').textContent,
+    gas: document.querySelector('#envGas .value').textContent,
+    imageVisible: document.querySelector('#snapshotCard').classList.contains('has-image'),
+    hasImageSrc: document.querySelector('#snapshotImage').hasAttribute('src')
+  })`);
+  const secondDeviceShot = await screenshot("ui-qa-second-device.png");
+  const allDeviceCommands = await evaluate(`(() => {
+    window.__bridgePublished = [];
+    sendCmdAll('disarm');
+    return window.__bridgePublished;
+  })()`);
+  await evaluate("selectDevice('aihear_03cb03')");
+  await waitUntil(
+    "document.querySelector('#deviceInfo').textContent === 'aihear_03cb03'",
+    "Primary device did not become active again",
+  );
   await evaluate("document.querySelector('#snapshotCard').scrollIntoView({block:'center'})");
   await sleep(150);
 
@@ -303,6 +339,21 @@ async function main() {
     jpegDecoded: successState.naturalWidth > 0 && successState.naturalHeight > 0,
     photoDisplayed: successState.hasImage,
     correctDevice: successState.activeDevice === "aihear_03cb03",
+    twoDeviceCards: dashboardState.deviceCards === 2,
+    primaryEnvironmentRendered:
+      dashboardState.temp === "25.6" && dashboardState.humi === "56" &&
+      dashboardState.pm === "102" && dashboardState.gas === "108",
+    secondEnvironmentRendered:
+      secondDeviceState.selectedDevice === "aihear_876f07" &&
+      secondDeviceState.temp === "26.1" && secondDeviceState.humi === "54" &&
+      secondDeviceState.pm === "99" && secondDeviceState.gas === "104",
+    switchClearsPreviousDevicePhoto:
+      secondDeviceState.imageVisible === false && secondDeviceState.hasImageSrc === false,
+    allDeviceCommandIsUnicastFanout:
+      allDeviceCommands.length === 2 &&
+      allDeviceCommands.every((item) =>
+        item.topic === "aihear/cmd" && item.payload?.cmd === "disarm") &&
+      new Set(allDeviceCommands.map((item) => item.payload?.device)).size === 2,
     noHorizontalOverflow: successState.overflow.length === 0,
     captureTargetsSelectedDevice:
       requestState.request?.topic === "aihear/cmd" &&
@@ -323,7 +374,10 @@ async function main() {
     unavailableState,
     uploadFailureState,
     consoleErrors,
-    screenshots: [successShot, errorShot],
+    dashboardState,
+    secondDeviceState,
+    allDeviceCommands,
+    screenshots: [dashboardShot, secondDeviceShot, successShot, errorShot],
     checks,
   }, null, 2));
   cdp.close();

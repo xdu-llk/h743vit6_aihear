@@ -344,6 +344,9 @@ function selectDevice(id){
   id=normalizeDeviceId(id);if(!id||devices.indexOf(id)<0)return;
   deviceId=id;localStorage.setItem('selected_device',id);localStorage.setItem('device_id',id);
   if(chartCry){chartCry.destroy();chartCry=null;}if(chartEnv){chartEnv.destroy();chartEnv=null;}if(chartAir){chartAir.destroy();chartAir=null;}
+  document.getElementById('snapshotCard').classList.remove('has-image');
+  document.getElementById('snapshotImage').removeAttribute('src');
+  document.getElementById('snapshotEmptyText').textContent='暂无事件抓拍';
   renderAllDeviceUi();pollControlState();pollEnv();loadAlerts();loadFeedings();loadStats();updateAnalysisSummary();pollSnapshot();
   document.getElementById('aiResult').textContent='暂无分析结果';document.getElementById('aiResult').classList.add('empty');
 }
