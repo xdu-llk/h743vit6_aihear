@@ -54,9 +54,11 @@ docs/gen_docx.py
 # 固件发布包
 releases/
 
-# Claude Code 自动生成
+# 本地开发工具配置
 .agents/
 .claude/
+/AGENTS.md
+/CLAUDE.md
 
 # 一次性工具脚本
 tools/cleanup_ui.py
